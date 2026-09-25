@@ -20,7 +20,7 @@ One command — or one MCP call — and the thing Claude Code just wrote stops l
 [![CI](https://github.com/Tunr-Sh/tunr/actions/workflows/ci.yml/badge.svg)](https://github.com/Tunr-Sh/tunr/actions/workflows/ci.yml)
 [![Stars](https://img.shields.io/github/stars/Tunr-Sh/tunr?style=flat&color=7c3aed)](https://github.com/Tunr-Sh/tunr/stargazers)
 
-[tunr.sh](https://tunr.sh) · [Docs](https://tunr.sh/docs) · [Dashboard](https://app.tunr.sh) · [Discussions](https://github.com/Tunr-Sh/tunr/discussions) · [Contributing](docs/CONTRIBUTING.md)
+[tunr.sh](https://tunr.sh) · [Docs](https://tunr.sh/docs/) · [Dashboard](https://app.tunr.sh) · [Discussions](https://github.com/Tunr-Sh/tunr/discussions) · [Contributing](docs/CONTRIBUTING.md)
 
 </div>
 
@@ -169,7 +169,7 @@ tunr share --port 3000
 
 HTTP/HTTPS with WebSocket (HMR works), plus raw **TCP**, **UDP** and
 end-to-end-encrypted **TLS** tunnels — all multiplexed over one connection.
-Regions: `ams` (Amsterdam), `sea` (Seattle), `sin` (Singapore).
+Traffic is served from a single EU relay today; more regions are planned.
 
 <details>
 <summary><b>Demo features</b> — freeze, read-only, feedback widget, auto-login</summary>
@@ -252,10 +252,9 @@ tunr share -p 3000 --qr
 # Path routing — one public URL, several local ports
 tunr share --route /=3000 --route /api=8080
 
-# Region selection
-tunr share --port 3000 --region ams     # Amsterdam (EU)
-tunr share --port 3000 --region sea     # Seattle (US West)
-tunr share --port 3000 --region sin     # Singapore (APAC)
+# Region hint — accepted today, takes effect once more regions launch
+# (tunr currently runs a single relay in the EU)
+tunr share --port 3000 --region ams
 
 # Header rewriting
 tunr share -p 3000 --header-add "X-Debug: true"
@@ -287,11 +286,11 @@ tunr share -p 3000 --domain demo.client.com
 tunr tcp --port 5432                          # PostgreSQL
 tunr tcp --port 22 --qr                       # SSH, QR for mobile
 tunr tcp --port 6379 --allow-ip 10.0.0.0/8    # Redis, restricted
-tunr tcp --port 3306 --region ams             # MySQL, EU relay
+tunr tcp --port 3306                          # MySQL
 
 # UDP — DNS, game servers, anything datagram
 tunr udp --port 53
-tunr udp --port 27015 --region ams
+tunr udp --port 27015                         # game server
 
 # TLS — end-to-end encrypted, SNI passthrough. The relay cannot read it.
 tunr tls --port 8443
@@ -368,7 +367,7 @@ as a `curl` command. Everything stays on your machine.
 | `tunr share -p PORT --x-forwarded-for --original-url` | Proxy headers |
 | `tunr share -p PORT --cors-origin ORIGIN` | CORS preflight |
 | `tunr share -p PORT --proxy URL` | HTTP/SOCKS5 proxy |
-| `tunr share -p PORT --region ams\|sea\|sin` | Pick a relay region |
+| `tunr share -p PORT --region ams` | Relay region hint (single EU relay today) |
 | `tunr share -p PORT --json` | JSON output for CI |
 | `tunr tcp -p PORT` / `tunr udp -p PORT` / `tunr tls -p PORT` | TCP / UDP / TLS tunnels |
 | `tunr up` / `tunr down` | Start/stop everything in `.tunr.json` |
@@ -545,19 +544,19 @@ means there is no code yet.
 | | Status |
 |---|---|
 | HTTP/WS, TCP, UDP, TLS tunnels | ✅ Stable |
-| Multi-region relay (`ams`/`sea`/`sin`) | ✅ Stable |
 | Demo features (freeze, demo, widget, auto-login) | ✅ Stable |
 | Access control (password, token, IP, TTL) | ✅ Stable |
 | Inspector + replay, Prometheus, service install | ✅ Stable |
 | Python / Node SDKs | ✅ Stable |
 | Self-hosted tunnel relay | ✅ Stable |
-| `tunr deploy` + `tunr apps` + logs | 🚧 Preview |
-| MCP cloud tools (`tunr_deploy`, `tunr_app_logs`, …) | 🚧 Preview |
+| `tunr deploy` + `tunr apps` + logs (v0.6.0+) | 🚧 Preview |
+| MCP cloud tools (`tunr_deploy`, `tunr_app_logs`, …) (v0.6.0+) | 🚧 Preview |
 | Scale-to-zero (sleep/wake) | 🚧 Preview |
 | Self-hosted cloud runner | 🚧 Preview |
 | **Role-based sharing** (viewer/commenter/editor, `--org acme.com`) | 📋 Planned |
 | Per-app SQLite + snapshots | 📋 Planned |
 | `tunr rollback` (code *and* data) | 📋 Planned |
+| Multi-region relay (`--region` is accepted; one EU relay today) | 📋 Planned |
 | Persistent TCP/UDP ports | 📋 Backlog |
 | GUI desktop app | 📋 Backlog |
 
@@ -616,7 +615,7 @@ allowed under both. See [NOTICE](NOTICE) for the exact boundary.
 
 <div align="center">
 
-**[tunr.sh](https://tunr.sh)** · [Docs](https://tunr.sh/docs) · [Discord](https://discord.gg/tunr) · [Twitter/X](https://x.com/vural_met)
+**[tunr.sh](https://tunr.sh)** · [Docs](https://tunr.sh/docs/) · [Discord](https://discord.gg/tunr) · [Twitter/X](https://x.com/vural_met)
 
 Built with 💜 in Go
 

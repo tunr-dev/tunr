@@ -88,7 +88,7 @@ request, and keeps running after you close your laptop.`,
 				return fmt.Errorf("packing failed: %w", err)
 			}
 			if tarBuf.Len() > 50<<20 {
-				return fmt.Errorf("upload is %s (>50MB); exclude large dirs via .gitignore/.tunrignore", human(tarBuf.Len()))
+				return fmt.Errorf("upload is %s (>50MB); move large files (datasets, media, build output) out of the project dir", human(tarBuf.Len()))
 			}
 			fmt.Printf("  ▲ Uploading %d files, %s\n", count, human(tarBuf.Len()))
 
