@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Tunr-Sh/tunr/internal/config"
+	"github.com/tunr-dev/tunr/internal/config"
 )
 
 // TestDefaultConfig — verifies default config uses safe values.

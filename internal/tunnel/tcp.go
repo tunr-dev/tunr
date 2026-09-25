@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
 	"github.com/gorilla/websocket"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 // tcpStream tracks a single TCP session forwarded between relay ↔ local-service.

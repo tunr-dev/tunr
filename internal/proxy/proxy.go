@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
 	"github.com/gorilla/websocket"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 // LocalProxy sits between the tunnel and your local dev server,

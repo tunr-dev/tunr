@@ -1,4 +1,4 @@
-module github.com/Tunr-Sh/tunr
+module github.com/tunr-dev/tunr
 
 go 1.22
 

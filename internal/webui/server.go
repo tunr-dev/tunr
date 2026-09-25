@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
 	"github.com/gorilla/websocket"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 // The dashboard UI is embedded in the binary itself.

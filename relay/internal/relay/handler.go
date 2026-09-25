@@ -10,11 +10,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/auth"
-	relaydb "github.com/Tunr-Sh/tunr/relay/internal/db"
-	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/tunr-dev/tunr/relay/internal/auth"
+	relaydb "github.com/tunr-dev/tunr/relay/internal/db"
+	"github.com/tunr-dev/tunr/relay/internal/logger"
 )
 
 // Handler — relay WebSocket handler.

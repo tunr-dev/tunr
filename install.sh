@@ -2,9 +2,9 @@
 set -e
 
 # Canonical repo first, then the legacy mirror. Releases are published to both
-# while the move to Tunr-Sh settles, so a hiccup on one doesn't break installs.
+# while the move to tunr-dev settles, so a hiccup on one doesn't break installs.
 # Override with TUNR_REPO=owner/name.
-REPOS="${TUNR_REPO:-Tunr-Sh/tunr ahmetvural79/tunr}"
+REPOS="${TUNR_REPO:-tunr-dev/tunr ahmetvural79/tunr}"
 INSTALL_DIR="${TUNR_INSTALL_DIR:-/usr/local/bin}"
 BINARY="tunr"
 

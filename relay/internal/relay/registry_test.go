@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/relay"
+	"github.com/tunr-dev/tunr/relay/internal/relay"
 )
 
 // TestRegistryRegisterAndLookup — kayıt ve arama

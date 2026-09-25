@@ -9,10 +9,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/auth"
-	"github.com/Tunr-Sh/tunr/internal/logger"
-	"github.com/Tunr-Sh/tunr/internal/term"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/auth"
+	"github.com/tunr-dev/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/term"
 )
 
 func newLoginCmd() *cobra.Command {

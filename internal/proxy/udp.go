@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 // UDPProxy forwards UDP datagrams between the relay and a local UDP port.

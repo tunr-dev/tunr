@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 // RetryConfig tunes the exponential backoff strategy.

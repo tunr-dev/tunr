@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/textproto"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 // BearerTokenMiddleware validates requests carrying a bearer token in the

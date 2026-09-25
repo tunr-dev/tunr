@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
-	"github.com/Tunr-Sh/tunr/internal/proxy"
 	"github.com/gorilla/websocket"
+	"github.com/tunr-dev/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/proxy"
 )
 
 // ProxyURL is set by the CLI --proxy flag. If empty, HTTP_PROXY / HTTPS_PROXY env vars are used.

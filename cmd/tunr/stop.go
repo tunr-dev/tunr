@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
-	"github.com/Tunr-Sh/tunr/internal/daemon"
-	"github.com/Tunr-Sh/tunr/internal/logger"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/daemon"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 func newStopCmd() *cobra.Command {

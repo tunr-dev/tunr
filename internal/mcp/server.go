@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/inspector"
-	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/inspector"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 // MCP (Model Context Protocol) server.

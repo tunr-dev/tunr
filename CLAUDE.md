@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repo is a **single product split into two Go modules**:
 
-- **`./` (module `github.com/Tunr-Sh/tunr`)** — the **CLI** users install. Entry point `cmd/tunr/main.go` wires Cobra subcommands in `cmd/tunr/root.go`. All client logic lives in `internal/`.
-- **`./relay/` (module `github.com/Tunr-Sh/tunr/relay`)** — the **relay server** users connect to (`relay.tunr.sh`). Entry point `relay/cmd/server/main.go`. Lives in its own `go.mod` and must be built/tested separately.
+- **`./` (module `github.com/tunr-dev/tunr`)** — the **CLI** users install. Entry point `cmd/tunr/main.go` wires Cobra subcommands in `cmd/tunr/root.go`. All client logic lives in `internal/`.
+- **`./relay/` (module `github.com/tunr-dev/tunr/relay`)** — the **relay server** users connect to (`relay.tunr.sh`). Entry point `relay/cmd/server/main.go`. Lives in its own `go.mod` and must be built/tested separately.
 - **`./sdk/`** — published wrappers around the CLI: `sdk/python` (`pip install tunr`, hatchling), `sdk/node` (`@tunr/cli`, tsc), plus a thin `sdk/go` and `sdk/js`. They shell out to the binary or hit the relay HTTP API; they do not import `internal/`.
 
 Anything under `internal/` is CLI-only; anything under `relay/internal/` is relay-only. Don't cross-import — the modules have separate dependency trees (the relay pulls `pgx` and `golang-jwt`; the CLI does not).

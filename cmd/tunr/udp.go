@@ -5,13 +5,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Tunr-Sh/tunr/internal/auth"
-	"github.com/Tunr-Sh/tunr/internal/config"
-	"github.com/Tunr-Sh/tunr/internal/logger"
-	"github.com/Tunr-Sh/tunr/internal/proxy"
-	"github.com/Tunr-Sh/tunr/internal/term"
-	"github.com/Tunr-Sh/tunr/internal/tunnel"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/auth"
+	"github.com/tunr-dev/tunr/internal/config"
+	"github.com/tunr-dev/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/proxy"
+	"github.com/tunr-dev/tunr/internal/term"
+	"github.com/tunr-dev/tunr/internal/tunnel"
 )
 
 func newUDPCmd() *cobra.Command {

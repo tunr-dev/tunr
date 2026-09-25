@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Tunr-Sh/tunr/internal/auth"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/auth"
 )
 
 // deploy source excludes — never uploaded (secrets, build artefacts, VCS).

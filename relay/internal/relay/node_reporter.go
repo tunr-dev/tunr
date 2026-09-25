@@ -17,8 +17,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/db"
-	"github.com/Tunr-Sh/tunr/relay/internal/logger"
+	"github.com/tunr-dev/tunr/relay/internal/db"
+	"github.com/tunr-dev/tunr/relay/internal/logger"
 )
 
 // NodeReporterConfig tunes the sampling loop.

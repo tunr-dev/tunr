@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/db"
+	"github.com/tunr-dev/tunr/relay/internal/db"
 )
 
 func sampleRoutes() []db.CloudRoute {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/term"
+	"github.com/tunr-dev/tunr/internal/term"
 )
 
 // LogLevel controls how loud we get

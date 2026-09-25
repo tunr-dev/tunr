@@ -12,8 +12,8 @@ carrying everything listed under v0.6.0 below.
 
 ### Changed
 - **repo:** the canonical repository is now
-  [github.com/Tunr-Sh/tunr](https://github.com/Tunr-Sh/tunr). Go module paths
-  are `github.com/Tunr-Sh/tunr` and `github.com/Tunr-Sh/tunr/relay`;
+  [github.com/tunr-dev/tunr](https://github.com/tunr-dev/tunr). Go module paths
+  are `github.com/tunr-dev/tunr` and `github.com/tunr-dev/tunr/relay`;
   `tunr update` and the release pipeline point there.
 - **docs:** new documentation at [tunr.sh/docs](https://tunr.sh/docs/),
   written against the actual CLI. The README no longer claims `ams`/`sea`/`sin`

@@ -47,14 +47,14 @@ git push origin "$VERSION"
 
 ### 1.3 Publish the release
 
-1. **GitHub** → **Tunr-Sh/tunr** → **Releases**
+1. **GitHub** → **tunr-dev/tunr** → **Releases**
 2. Open the latest **draft** release
 3. Edit release notes if needed (you can use the templates below)
 4. Click **"Publish release"**
 
 After publishing:
 
-- `https://github.com/Tunr-Sh/tunr/releases/latest` is updated
+- `https://github.com/tunr-dev/tunr/releases/latest` is updated
 - `curl -sL https://tunr.sh/install.sh | sh` (or `https://tunr.sh/install.sh`) downloads from that release
 
 ### 1.4 Release notes (English)
@@ -83,8 +83,8 @@ tunr is a zero-config local-to-public tunnel tool. Share your local server with 
 
 ### Links
 
-- [Documentation](https://github.com/Tunr-Sh/tunr/tree/main/docs)
-- [Security policy](https://github.com/Tunr-Sh/tunr/blob/main/docs/SECURITY.md)
+- [Documentation](https://github.com/tunr-dev/tunr/tree/main/docs)
+- [Security policy](https://github.com/tunr-dev/tunr/blob/main/docs/SECURITY.md)
 ```
 
 **Patch release example (v0.1.1):**

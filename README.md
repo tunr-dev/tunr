@@ -13,14 +13,14 @@
 **Ship the apps your agent builds.**
 One command — or one MCP call — and the thing Claude Code just wrote stops living on `localhost`.
 
-[![Release](https://img.shields.io/github/v/release/Tunr-Sh/tunr?color=7c3aed)](https://github.com/Tunr-Sh/tunr/releases)
+[![Release](https://img.shields.io/github/v/release/tunr-dev/tunr?color=7c3aed)](https://github.com/tunr-dev/tunr/releases)
 [![CLI: Apache 2.0](https://img.shields.io/badge/CLI-Apache--2.0-7c3aed.svg)](LICENSE)
 [![Relay: PolyForm Shield](https://img.shields.io/badge/relay-PolyForm%20Shield-6b7280.svg)](relay/LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.22+-00add8)](go.mod)
-[![CI](https://github.com/Tunr-Sh/tunr/actions/workflows/ci.yml/badge.svg)](https://github.com/Tunr-Sh/tunr/actions/workflows/ci.yml)
-[![Stars](https://img.shields.io/github/stars/Tunr-Sh/tunr?style=flat&color=7c3aed)](https://github.com/Tunr-Sh/tunr/stargazers)
+[![CI](https://github.com/tunr-dev/tunr/actions/workflows/ci.yml/badge.svg)](https://github.com/tunr-dev/tunr/actions/workflows/ci.yml)
+[![Stars](https://img.shields.io/github/stars/tunr-dev/tunr?style=flat&color=7c3aed)](https://github.com/tunr-dev/tunr/stargazers)
 
-[tunr.sh](https://tunr.sh) · [Docs](https://tunr.sh/docs/) · [Dashboard](https://app.tunr.sh) · [Discussions](https://github.com/Tunr-Sh/tunr/discussions) · [Contributing](docs/CONTRIBUTING.md)
+[tunr.sh](https://tunr.sh) · [Docs](https://tunr.sh/docs/) · [Dashboard](https://app.tunr.sh) · [Discussions](https://github.com/tunr-dev/tunr/discussions) · [Contributing](docs/CONTRIBUTING.md)
 
 </div>
 
@@ -67,13 +67,13 @@ on-ramp rather than the product.
 brew install ahmetvural79/tap/tunr
 
 # macOS / Linux — install script
-curl -fsSL https://raw.githubusercontent.com/Tunr-Sh/tunr/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tunr-dev/tunr/main/install.sh | sh
 
 # Go
-go install github.com/Tunr-Sh/tunr/cmd/tunr@latest
+go install github.com/tunr-dev/tunr/cmd/tunr@latest
 
 # From source
-git clone https://github.com/Tunr-Sh/tunr.git && cd tunr && make build
+git clone https://github.com/tunr-dev/tunr.git && cd tunr && make build
 ```
 
 A single static binary. macOS, Linux and Windows, amd64 and arm64, no runtime
@@ -569,8 +569,8 @@ localtunnel: [docs/compare-tunnels.md](docs/compare-tunnels.md).
 
 Contributions are welcome — read [CONTRIBUTING.md](docs/CONTRIBUTING.md) first.
 Good places to start are issues labelled
-[`good first issue`](https://github.com/Tunr-Sh/tunr/labels/good%20first%20issue)
-and [`help wanted`](https://github.com/Tunr-Sh/tunr/labels/help%20wanted).
+[`good first issue`](https://github.com/tunr-dev/tunr/labels/good%20first%20issue)
+and [`help wanted`](https://github.com/tunr-dev/tunr/labels/help%20wanted).
 
 ```bash
 make check      # vet + lint + test + govulncheck
@@ -589,9 +589,9 @@ cd relay && go build ./cmd/server && go test ./...
 
 | | |
 |---|---|
-| Bugs & feature requests | [GitHub Issues](https://github.com/Tunr-Sh/tunr/issues) |
-| Questions & ideas | [GitHub Discussions](https://github.com/Tunr-Sh/tunr/discussions) |
-| Security reports | [Private advisory](https://github.com/Tunr-Sh/tunr/security/advisories/new) or [dev@tunr.sh](mailto:dev@tunr.sh) |
+| Bugs & feature requests | [GitHub Issues](https://github.com/tunr-dev/tunr/issues) |
+| Questions & ideas | [GitHub Discussions](https://github.com/tunr-dev/tunr/discussions) |
+| Security reports | [Private advisory](https://github.com/tunr-dev/tunr/security/advisories/new) or [dev@tunr.sh](mailto:dev@tunr.sh) |
 | Developer / contributor contact | [dev@tunr.sh](mailto:dev@tunr.sh) |
 | Everything else (billing, partnerships, press) | [contact@tunr.sh](mailto:contact@tunr.sh) |
 

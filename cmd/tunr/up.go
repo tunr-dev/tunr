@@ -8,11 +8,11 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/Tunr-Sh/tunr/internal/auth"
-	"github.com/Tunr-Sh/tunr/internal/logger"
-	"github.com/Tunr-Sh/tunr/internal/term"
-	"github.com/Tunr-Sh/tunr/internal/tunnel"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/auth"
+	"github.com/tunr-dev/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/term"
+	"github.com/tunr-dev/tunr/internal/tunnel"
 )
 
 // TunnelDef describes a single tunnel in the multi-tunnel config.

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	relaydb "github.com/Tunr-Sh/tunr/relay/internal/db"
-	"github.com/Tunr-Sh/tunr/relay/internal/logger"
+	relaydb "github.com/tunr-dev/tunr/relay/internal/db"
+	"github.com/tunr-dev/tunr/relay/internal/logger"
 )
 
 // RateLimiter — IP başına sliding window rate limiter

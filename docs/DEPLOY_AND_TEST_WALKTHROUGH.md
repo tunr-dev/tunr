@@ -19,8 +19,8 @@ This walkthrough provides step-by-step guidance to go live with tunr.sh, test it
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │  GitHub Repositories                                                │
-│  • Tunr-Sh/tunr        — CLI, relay, landing (static)          │
-│  • Tunr-Sh/tunr-dashboard — Next.js dashboard (separate repo) │
+│  • tunr-dev/tunr        — CLI, relay, landing (static)          │
+│  • tunr-dev/tunr-dashboard — Next.js dashboard (separate repo) │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -115,7 +115,7 @@ rsync -avz install.sh root@<HETZNER_IP>:/var/www/tunr/
 ssh root@<HETZNER_IP>
 mkdir -p /var/www/tunr
 cd /tmp
-git clone --depth 1 https://github.com/Tunr-Sh/tunr.git
+git clone --depth 1 https://github.com/tunr-dev/tunr.git
 cp -r tunr/landing/* /var/www/tunr/
 cp tunr/install.sh /var/www/tunr/
 chown -R caddy:caddy /var/www/tunr
@@ -196,7 +196,7 @@ curl -s https://tunr.sh/install.sh | head -10
 
 ### Step B.1 — Create Separate GitHub Repo and Push Dashboard
 
-1. Create a new GitHub repo: **Tunr-Sh/tunr-dashboard** (public, empty or with README).
+1. Create a new GitHub repo: **tunr-dev/tunr-dashboard** (public, empty or with README).
 2. Push local `landing/app/` contents to this repo:
 
 ```bash
@@ -204,7 +204,7 @@ cd /path/to/tunr/landing/app
 
 # Add new repo as remote
 git init
-git remote add origin git@github.com:Tunr-Sh/tunr-dashboard.git
+git remote add origin git@github.com:tunr-dev/tunr-dashboard.git
 
 # `.gitignore` already exists; add everything except node_modules
 git add .
@@ -218,7 +218,7 @@ git push -u origin main
 ### Step B.2 — Create Site on Netlify
 
 1. [Netlify](https://app.netlify.com/) → Add new site → Import an existing project  
-2. Connect GitHub -> select **Tunr-Sh/tunr-dashboard**  
+2. Connect GitHub -> select **tunr-dev/tunr-dashboard**  
 3. Build settings (entire repo is Next.js, so base directory is empty):
    - **Base directory:** *(leave empty)*
    - **Build command:** `npm run build`
@@ -389,7 +389,7 @@ tunr share --port 3000
 
 ### Install script hata veriyor
 
-- Verify a release exists in `Tunr-Sh/tunr`  
+- Verify a release exists in `tunr-dev/tunr`  
 - Verify release has binary for target OS/arch (e.g. `tunr_0.1.0_linux_amd64.tar.gz`)  
 
 ### Magic link gelmiyor

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Tunr-Sh/tunr/internal/config"
-	"github.com/Tunr-Sh/tunr/internal/logger"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/config"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 func newConfigCmd() *cobra.Command {

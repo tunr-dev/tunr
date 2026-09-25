@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/tunr-dev/tunr/relay/internal/logger"
 )
 
 // Proxy — gelen HTTP isteklerini doğru tunnel'a yönlendirir.

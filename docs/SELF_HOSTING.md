@@ -16,7 +16,7 @@ This guide explains how to run your own tunr relay server. This is useful for:
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/Tunr-Sh/tunr.git
+git clone https://github.com/tunr-dev/tunr.git
 cd tunr
 ```
 

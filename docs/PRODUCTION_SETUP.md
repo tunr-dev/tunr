@@ -209,7 +209,7 @@ rsync -avz --exclude='.git' --exclude='node_modules' --exclude='.next' \
   /path/to/tunr/ root@<SERVER_IP>:/opt/tunr/src/
 
 # Option B: git clone
-git clone https://github.com/Tunr-Sh/tunr.git /opt/tunr/src
+git clone https://github.com/tunr-dev/tunr.git /opt/tunr/src
 ```
 
 ---

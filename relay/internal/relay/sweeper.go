@@ -26,7 +26,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/logger"
+	"github.com/tunr-dev/tunr/relay/internal/logger"
 )
 
 // appSleeper is the subset of RunnerClient the sweeper needs.

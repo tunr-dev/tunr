@@ -35,8 +35,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/db"
-	"github.com/Tunr-Sh/tunr/relay/internal/logger"
+	"github.com/tunr-dev/tunr/relay/internal/db"
+	"github.com/tunr-dev/tunr/relay/internal/logger"
 )
 
 // routeCacheVersion guards against reading a file written by an older layout.

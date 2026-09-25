@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 var rootCmd = &cobra.Command{

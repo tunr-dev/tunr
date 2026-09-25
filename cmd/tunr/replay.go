@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 func newReplayCmd() *cobra.Command {

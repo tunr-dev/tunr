@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/tunr-dev/tunr/relay/internal/logger"
 )
 
 func isBrowserWebSocket(r *http.Request) bool {

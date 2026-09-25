@@ -38,7 +38,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/relay/internal/runner"
+	"github.com/tunr-dev/tunr/relay/internal/runner"
 )
 
 const (

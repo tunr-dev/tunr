@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Tunr-Sh/tunr"
+Homepage = "https://github.com/tunr-dev/tunr"
 Documentation = "https://tunr.sh/docs"
 
 [tool.hatch.build.targets.wheel]

@@ -16,12 +16,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/Tunr-Sh/tunr/internal/auth"
-	"github.com/Tunr-Sh/tunr/internal/inspector"
-	"github.com/Tunr-Sh/tunr/internal/logger"
-	"github.com/Tunr-Sh/tunr/internal/mcp"
-	"github.com/Tunr-Sh/tunr/internal/tunnel"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/auth"
+	"github.com/tunr-dev/tunr/internal/inspector"
+	"github.com/tunr-dev/tunr/internal/logger"
+	"github.com/tunr-dev/tunr/internal/mcp"
+	"github.com/tunr-dev/tunr/internal/tunnel"
 )
 
 // collectDeploy consumes the control plane's SSE build stream and folds it into

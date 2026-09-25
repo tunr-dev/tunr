@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/auth"
-	"github.com/Tunr-Sh/tunr/internal/config"
-	"github.com/Tunr-Sh/tunr/internal/daemon"
-	"github.com/Tunr-Sh/tunr/internal/term"
 	"github.com/spf13/cobra"
+	"github.com/tunr-dev/tunr/internal/auth"
+	"github.com/tunr-dev/tunr/internal/config"
+	"github.com/tunr-dev/tunr/internal/daemon"
+	"github.com/tunr-dev/tunr/internal/term"
 )
 
 func newDoctorCmd() *cobra.Command {
@@ -114,7 +114,7 @@ func runDoctor() error {
 	} else {
 		term.Yellow.Printf("  %d/%d passed\n\n", passed, total)
 		term.Dim.Println("  Help: https://tunr.sh/docs/troubleshooting")
-		term.Dim.Println("  Issue: https://github.com/Tunr-Sh/tunr/issues")
+		term.Dim.Println("  Issue: https://github.com/tunr-dev/tunr/issues")
 		fmt.Println()
 	}
 

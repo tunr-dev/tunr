@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/Tunr-Sh/tunr/internal/proxy"
+	"github.com/tunr-dev/tunr/internal/proxy"
 )
 
 func mustPort(t *testing.T, rawURL string) int {

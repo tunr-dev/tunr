@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Tunr-Sh/tunr/internal/logger"
 	"github.com/google/uuid"
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 // HTTP Inspector — full-body capture for every request and response.
