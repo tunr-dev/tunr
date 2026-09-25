@@ -13,12 +13,14 @@
 **Ship the apps your agent builds.**
 One command — or one MCP call — and the thing Claude Code just wrote stops living on `localhost`.
 
-[![Release](https://img.shields.io/github/v/release/ahmetvural79/tunr?color=7c3aed)](https://github.com/ahmetvural79/tunr/releases)
+[![Release](https://img.shields.io/github/v/release/Tunr-Sh/tunr?color=7c3aed)](https://github.com/Tunr-Sh/tunr/releases)
 [![CLI: Apache 2.0](https://img.shields.io/badge/CLI-Apache--2.0-7c3aed.svg)](LICENSE)
 [![Relay: PolyForm Shield](https://img.shields.io/badge/relay-PolyForm%20Shield-6b7280.svg)](relay/LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.22+-00add8)](go.mod)
+[![CI](https://github.com/Tunr-Sh/tunr/actions/workflows/ci.yml/badge.svg)](https://github.com/Tunr-Sh/tunr/actions/workflows/ci.yml)
+[![Stars](https://img.shields.io/github/stars/Tunr-Sh/tunr?style=flat&color=7c3aed)](https://github.com/Tunr-Sh/tunr/stargazers)
 
-[tunr.sh](https://tunr.sh) · [Docs](https://tunr.sh/docs) · [Dashboard](https://app.tunr.sh)
+[tunr.sh](https://tunr.sh) · [Docs](https://tunr.sh/docs) · [Dashboard](https://app.tunr.sh) · [Discussions](https://github.com/Tunr-Sh/tunr/discussions) · [Contributing](docs/CONTRIBUTING.md)
 
 </div>
 
@@ -65,13 +67,13 @@ on-ramp rather than the product.
 brew install ahmetvural79/tap/tunr
 
 # macOS / Linux — install script
-curl -fsSL https://raw.githubusercontent.com/ahmetvural79/tunr/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Tunr-Sh/tunr/main/install.sh | sh
 
 # Go
-go install github.com/ahmetvural79/tunr/cmd/tunr@latest
+go install github.com/Tunr-Sh/tunr/cmd/tunr@latest
 
 # From source
-git clone https://github.com/ahmetvural79/tunr.git && cd tunr && make build
+git clone https://github.com/Tunr-Sh/tunr.git && cd tunr && make build
 ```
 
 A single static binary. macOS, Linux and Windows, amd64 and arm64, no runtime
@@ -528,7 +530,7 @@ for capacity planning.
 - All relay traffic over **TLS 1.3**; `tunr tls` is end-to-end, the relay can't read it
 - Cloud apps run under **gVisor**, not bare containers
 - `.env` files are excluded from deploy uploads by default
-- No telemetry, no analytics, no phone-home
+- The CLI ships no telemetry, no analytics, no phone-home
 - Supply chain: `go mod verify` + `govulncheck` in CI, cosign-signed checksums
 
 Found a vulnerability? **Don't open a public issue** — see [SECURITY.md](SECURITY.md).
@@ -567,6 +569,9 @@ localtunnel: [docs/compare-tunnels.md](docs/compare-tunnels.md).
 ## Contributing
 
 Contributions are welcome — read [CONTRIBUTING.md](docs/CONTRIBUTING.md) first.
+Good places to start are issues labelled
+[`good first issue`](https://github.com/Tunr-Sh/tunr/labels/good%20first%20issue)
+and [`help wanted`](https://github.com/Tunr-Sh/tunr/labels/help%20wanted).
 
 ```bash
 make check      # vet + lint + test + govulncheck
@@ -578,6 +583,20 @@ The relay is a separate Go module and isn't covered by the Makefile:
 ```bash
 cd relay && go build ./cmd/server && go test ./...
 ```
+
+---
+
+## Community & support
+
+| | |
+|---|---|
+| Bugs & feature requests | [GitHub Issues](https://github.com/Tunr-Sh/tunr/issues) |
+| Questions & ideas | [GitHub Discussions](https://github.com/Tunr-Sh/tunr/discussions) |
+| Security reports | [Private advisory](https://github.com/Tunr-Sh/tunr/security/advisories/new) or [dev@tunr.sh](mailto:dev@tunr.sh) |
+| Developer / contributor contact | [dev@tunr.sh](mailto:dev@tunr.sh) |
+| Everything else (billing, partnerships, press) | [contact@tunr.sh](mailto:contact@tunr.sh) |
+
+Please follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---
 

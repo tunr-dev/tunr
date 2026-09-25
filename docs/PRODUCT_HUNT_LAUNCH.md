@@ -216,7 +216,7 @@ Write this in the maker's voice. PH ranks comments by engagement; yours is the f
 >
 > **Try it:** `curl -sSL https://tunr.sh/install | sh && tunr share -p 3000`
 >
-> Open source on GitHub: https://github.com/ahmetvural79/tunr
+> Open source on GitHub: https://github.com/Tunr-Sh/tunr
 >
 > Would genuinely love feedback on what's missing — TCP/UDP just shipped in v0.4.0 thanks to community asks.
 
@@ -288,7 +288,7 @@ Every link out of PH should be tagged:
 ```
 https://tunr.sh/?utm_source=producthunt&utm_medium=referral&utm_campaign=launch
 https://tunr.sh/install.sh?utm_source=producthunt   ← detect installs
-https://github.com/ahmetvural79/tunr?utm_source=producthunt
+https://github.com/Tunr-Sh/tunr?utm_source=producthunt
 ```
 
 ### 8.2 — Conversion funnels
@@ -546,7 +546,7 @@ I'd love feedback, particularly on:
 - The MCP integration — anyone using MCP with dev tooling?
 - Anything Pinggy / ngrok / Cloudflare Tunnel does better that I should copy.
 
-Repo: https://github.com/ahmetvural79/tunr
+Repo: https://github.com/Tunr-Sh/tunr
 
 Thanks!
 ```

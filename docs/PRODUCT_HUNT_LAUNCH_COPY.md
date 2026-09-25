@@ -21,7 +21,7 @@ Ready-to-paste content for the Product Hunt submission form. This is the *what y
 
 **Links:**
 - Website: https://tunr.sh
-- GitHub: https://github.com/ahmetvural79/tunr
+- GitHub: https://github.com/Tunr-Sh/tunr
 - Docs: https://tunr.sh/docs
 - Pricing: https://tunr.sh/#pricing
 

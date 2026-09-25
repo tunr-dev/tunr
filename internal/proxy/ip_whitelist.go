@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ahmetvural79/tunr/internal/logger"
+	"github.com/Tunr-Sh/tunr/internal/logger"
 )
 
 // IPWhitelist holds parsed CIDR networks for access control.

@@ -31,7 +31,7 @@ func updateRepo() string {
 	if v := os.Getenv("TUNR_UPDATE_REPO"); v != "" {
 		return v
 	}
-	return "ahmetvural79/tunr"
+	return "Tunr-Sh/tunr"
 }
 
 func updateBaseURL() string {

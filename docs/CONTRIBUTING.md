@@ -17,7 +17,7 @@ Open to contributions:
 
 ```bash
 # Clone the repo
-git clone https://github.com/ahmetvural79/tunr.git
+git clone https://github.com/Tunr-Sh/tunr.git
 cd tunr
 
 # Install dependencies
@@ -70,7 +70,7 @@ chore: bump gorilla/websocket to v1.5.3
 
 ## Questions?
 
-- Open a [GitHub Discussion](https://github.com/ahmetvural79/tunr/discussions)
+- Open a [GitHub Discussion](https://github.com/Tunr-Sh/tunr/discussions)
 - Join [Discord](https://discord.gg/tunr)
 
 ## License

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmetvural79/tunr/internal/billing"
+	"github.com/Tunr-Sh/tunr/internal/billing"
 )
 
 // createPaddleSig — creates a valid Paddle webhook signature for testing

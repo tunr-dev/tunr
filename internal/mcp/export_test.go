@@ -3,7 +3,7 @@ package mcp
 import (
 	"io"
 
-	"github.com/ahmetvural79/tunr/internal/inspector"
+	"github.com/Tunr-Sh/tunr/internal/inspector"
 )
 
 // NewForTest — creates a Server for testing with custom io.Reader/Writer

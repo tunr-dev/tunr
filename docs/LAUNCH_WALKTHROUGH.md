@@ -113,23 +113,23 @@ curl -sL https://tunr.sh/install.sh | sh
 
 ```bash
 # macOS (Apple Silicon)
-curl -L https://github.com/ahmetvural79/tunr/releases/download/v0.4.0/tunr_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/Tunr-Sh/tunr/releases/download/v0.4.0/tunr_darwin_arm64.tar.gz | tar xz
 sudo mv tunr /usr/local/bin/
 
 # macOS (Intel)
-curl -L https://github.com/ahmetvural79/tunr/releases/download/v0.4.0/tunr_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/Tunr-Sh/tunr/releases/download/v0.4.0/tunr_darwin_amd64.tar.gz | tar xz
 sudo mv tunr /usr/local/bin/
 
 # Linux (amd64)
-curl -L https://github.com/ahmetvural79/tunr/releases/download/v0.4.0/tunr_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/Tunr-Sh/tunr/releases/download/v0.4.0/tunr_linux_amd64.tar.gz | tar xz
 sudo mv tunr /usr/local/bin/
 
 # Linux (ARM64 / Raspberry Pi)
-curl -L https://github.com/ahmetvural79/tunr/releases/download/v0.4.0/tunr_linux_arm64.tar.gz | tar xz
+curl -L https://github.com/Tunr-Sh/tunr/releases/download/v0.4.0/tunr_linux_arm64.tar.gz | tar xz
 sudo mv tunr /usr/local/bin/
 
 # Windows (PowerShell)
-Invoke-WebRequest -Uri "https://github.com/ahmetvural79/tunr/releases/download/v0.4.0/tunr_windows_amd64.zip" -OutFile tunr.zip
+Invoke-WebRequest -Uri "https://github.com/Tunr-Sh/tunr/releases/download/v0.4.0/tunr_windows_amd64.zip" -OutFile tunr.zip
 Expand-Archive tunr.zip -DestinationPath .
 Move-Item tunr.exe C:\Windows\System32\
 ```
@@ -162,7 +162,7 @@ tunr --version
 
 ```bash
 # Pull the image
-docker pull ghcr.io/ahmetvural79/tunr:v0.4.0
+docker pull ghcr.io/Tunr-Sh/tunr:v0.4.0
 
 # Or build locally
 cd tunr
@@ -181,7 +181,7 @@ docker run --rm -it --network host tunr share --port 3000
 # Add to your project's docker-compose.yml
 services:
   tunnel:
-    image: ghcr.io/ahmetvural79/tunr:v0.4.0
+    image: ghcr.io/Tunr-Sh/tunr:v0.4.0
     network_mode: host
     command: share --port 3000 --subdomain myapp
     restart: unless-stopped
@@ -350,7 +350,7 @@ Run your own tunr relay on any VPS (Hetzner, DigitalOcean, AWS):
 
 ```bash
 # 1. Clone
-git clone https://github.com/ahmetvural79/tunr.git
+git clone https://github.com/Tunr-Sh/tunr.git
 cd tunr
 
 # 2. Configure DNS (wildcard A record)

@@ -443,12 +443,12 @@ go test -bench=. -benchmem ./internal/inspector/...
 
 **Expected output:**
 ```
-ok  github.com/ahmetvural79/tunr/internal/billing   ✓
-ok  github.com/ahmetvural79/tunr/internal/inspector  ✓
-ok  github.com/ahmetvural79/tunr/internal/mcp        ✓
-ok  github.com/ahmetvural79/tunr/internal/config     ✓
-ok  github.com/ahmetvural79/tunr/relay/internal/auth ✓
-ok  github.com/ahmetvural79/tunr/relay/internal/relay ✓
+ok  github.com/Tunr-Sh/tunr/internal/billing   ✓
+ok  github.com/Tunr-Sh/tunr/internal/inspector  ✓
+ok  github.com/Tunr-Sh/tunr/internal/mcp        ✓
+ok  github.com/Tunr-Sh/tunr/internal/config     ✓
+ok  github.com/Tunr-Sh/tunr/relay/internal/auth ✓
+ok  github.com/Tunr-Sh/tunr/relay/internal/relay ✓
 ```
 
 ### 11.2 CLI Smoke Test

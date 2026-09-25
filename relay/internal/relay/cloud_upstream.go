@@ -26,7 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ahmetvural79/tunr/relay/internal/logger"
+	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 )
 
 // Waker abstracts "make this app dialable". runner.DockerDriver implements it on

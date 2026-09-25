@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ahmetvural79/tunr/internal/auth"
-	"github.com/ahmetvural79/tunr/internal/config"
-	"github.com/ahmetvural79/tunr/internal/daemon"
-	"github.com/ahmetvural79/tunr/internal/term"
+	"github.com/Tunr-Sh/tunr/internal/auth"
+	"github.com/Tunr-Sh/tunr/internal/config"
+	"github.com/Tunr-Sh/tunr/internal/daemon"
+	"github.com/Tunr-Sh/tunr/internal/term"
 	"github.com/spf13/cobra"
 )
 
@@ -114,7 +114,7 @@ func runDoctor() error {
 	} else {
 		term.Yellow.Printf("  %d/%d passed\n\n", passed, total)
 		term.Dim.Println("  Help: https://tunr.sh/docs/troubleshooting")
-		term.Dim.Println("  Issue: https://github.com/ahmetvural79/tunr/issues")
+		term.Dim.Println("  Issue: https://github.com/Tunr-Sh/tunr/issues")
 		fmt.Println()
 	}
 

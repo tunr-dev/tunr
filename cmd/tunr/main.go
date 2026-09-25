@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ahmetvural79/tunr/internal/tunnel"
+	"github.com/Tunr-Sh/tunr/internal/tunnel"
 )
 
 var Version = "dev"
@@ -19,7 +19,7 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintf(os.Stderr, "\nUnexpected error: %v\n", r)
-			fmt.Fprintln(os.Stderr, "Please report: https://github.com/ahmetvural79/tunr/issues")
+			fmt.Fprintln(os.Stderr, "Please report: https://github.com/Tunr-Sh/tunr/issues")
 			os.Exit(1)
 		}
 	}()

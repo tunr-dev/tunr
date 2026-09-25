@@ -19,9 +19,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ahmetvural79/tunr/relay/internal/auth"
-	"github.com/ahmetvural79/tunr/relay/internal/db"
-	"github.com/ahmetvural79/tunr/relay/internal/logger"
+	"github.com/Tunr-Sh/tunr/relay/internal/auth"
+	"github.com/Tunr-Sh/tunr/relay/internal/db"
+	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 )
 
 // ControlPlane serves the /v1/apps + /v1/deploy REST surface.

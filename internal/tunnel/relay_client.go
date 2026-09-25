@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahmetvural79/tunr/internal/logger"
-	"github.com/ahmetvural79/tunr/internal/proxy"
+	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/Tunr-Sh/tunr/internal/proxy"
 	"github.com/gorilla/websocket"
 )
 

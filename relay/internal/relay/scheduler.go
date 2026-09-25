@@ -32,7 +32,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahmetvural79/tunr/relay/internal/logger"
+	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 )
 
 // NodeClient is everything the control plane needs from a node. RunnerClient

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="ahmetvural79/tunr"
+REPO="Tunr-Sh/tunr"
 INSTALL_DIR="/usr/local/bin"
 BINARY="tunr"
 

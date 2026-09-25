@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability report
-    url: https://github.com/ahmetvural79/tunr/security/advisories/new
+    url: https://github.com/Tunr-Sh/tunr/security/advisories/new
     about: Please use private security advisories for vulnerabilities.
   - name: Questions and discussion
-    url: https://github.com/ahmetvural79/tunr/discussions
+    url: https://github.com/Tunr-Sh/tunr/discussions
     about: Ask usage questions or discuss ideas.
+  - name: Contact the maintainers
+    url: mailto:contact@tunr.sh
+    about: Billing, partnerships and anything that isn't a bug or feature request.

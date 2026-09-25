@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ahmetvural79/tunr/relay/internal/db"
-	"github.com/ahmetvural79/tunr/relay/internal/logger"
+	"github.com/Tunr-Sh/tunr/relay/internal/db"
+	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 )
 
 // RouteLoader syncs cloud routes from Postgres into a RouteStore.

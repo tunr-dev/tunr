@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ahmetvural79/tunr/internal/auth"
+	"github.com/Tunr-Sh/tunr/internal/auth"
 	"github.com/spf13/cobra"
 )
 

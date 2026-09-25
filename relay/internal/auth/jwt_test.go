@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahmetvural79/tunr/relay/internal/auth"
+	"github.com/Tunr-Sh/tunr/relay/internal/auth"
 )
 
 // TestJWTIssueAndVerify — normal happy path

@@ -9,9 +9,9 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/ahmetvural79/tunr/internal/auth"
-	"github.com/ahmetvural79/tunr/internal/logger"
-	"github.com/ahmetvural79/tunr/internal/term"
+	"github.com/Tunr-Sh/tunr/internal/auth"
+	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/Tunr-Sh/tunr/internal/term"
 	"github.com/spf13/cobra"
 )
 

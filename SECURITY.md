@@ -26,7 +26,7 @@ Doing so could put other users at risk. Instead:
 ### Alternative: Email
 
 For encrypted communication:
-- **Email:** security@tunr.sh
+- **Email:** dev@tunr.sh
 - **PGP:** (Coming soon — to be added in Phase 0)
 
 ## What to Expect?

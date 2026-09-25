@@ -7,10 +7,10 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ahmetvural79/tunr/internal/billing"
-	"github.com/ahmetvural79/tunr/internal/inspector"
-	"github.com/ahmetvural79/tunr/internal/logger"
-	"github.com/ahmetvural79/tunr/internal/proxy"
+	"github.com/Tunr-Sh/tunr/internal/billing"
+	"github.com/Tunr-Sh/tunr/internal/inspector"
+	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/Tunr-Sh/tunr/internal/proxy"
 )
 
 // Server is tunr's internal API server.

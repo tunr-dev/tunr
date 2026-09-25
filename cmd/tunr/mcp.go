@@ -16,11 +16,11 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ahmetvural79/tunr/internal/auth"
-	"github.com/ahmetvural79/tunr/internal/inspector"
-	"github.com/ahmetvural79/tunr/internal/logger"
-	"github.com/ahmetvural79/tunr/internal/mcp"
-	"github.com/ahmetvural79/tunr/internal/tunnel"
+	"github.com/Tunr-Sh/tunr/internal/auth"
+	"github.com/Tunr-Sh/tunr/internal/inspector"
+	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/Tunr-Sh/tunr/internal/mcp"
+	"github.com/Tunr-Sh/tunr/internal/tunnel"
 	"github.com/spf13/cobra"
 )
 

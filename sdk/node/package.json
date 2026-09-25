@@ -21,7 +21,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ahmetvural79/tunr.git"
+    "url": "git+https://github.com/Tunr-Sh/tunr.git"
   },
   "engines": {
     "node": ">=16.0.0"

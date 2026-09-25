@@ -121,7 +121,7 @@ changelog:
 
 release:
   github:
-    owner: ahmetvural79
+    owner: Tunr-Sh
     name: tunr
   
   # Create as Draft, confirm manually
@@ -138,10 +138,10 @@ release:
     brew install ahmetvural79/tap/tunr
 
     # macOS / Linux (install script)
-    curl -fsSL https://raw.githubusercontent.com/ahmetvural79/tunr/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/Tunr-Sh/tunr/main/install.sh | sh
 
     # Go
-    go install github.com/ahmetvural79/tunr/cmd/tunr@latest
+    go install github.com/Tunr-Sh/tunr/cmd/tunr@latest
     ```
 
     SDKs: `pip install tunr` · `npm install @tunr/cli`
@@ -161,7 +161,7 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     skip_upload: "{{ eq .Env.HOMEBREW_TAP_TOKEN \"\" }}"
     url:
-      verified: "github.com/ahmetvural79/tunr"
+      verified: "github.com/Tunr-Sh/tunr"
     # Unsigned binary: remove quarantine so macOS allows running
     hooks:
       post:

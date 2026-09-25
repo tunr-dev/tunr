@@ -94,3 +94,6 @@ yarn-error.log*
 # (ref/tunrpivot/*.go are stray copies whose package names collide, which
 #  breaks `go build ./...` and `go test ./...` — the release gate.)
 ref/
+
+# Stray relay binary built with `go build -o relay-server`
+relay/relay-server

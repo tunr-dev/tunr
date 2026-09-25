@@ -8,12 +8,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ahmetvural79/tunr/internal/auth"
-	"github.com/ahmetvural79/tunr/internal/config"
-	"github.com/ahmetvural79/tunr/internal/logger"
-	"github.com/ahmetvural79/tunr/internal/proxy"
-	"github.com/ahmetvural79/tunr/internal/term"
-	"github.com/ahmetvural79/tunr/internal/tunnel"
+	"github.com/Tunr-Sh/tunr/internal/auth"
+	"github.com/Tunr-Sh/tunr/internal/config"
+	"github.com/Tunr-Sh/tunr/internal/logger"
+	"github.com/Tunr-Sh/tunr/internal/proxy"
+	"github.com/Tunr-Sh/tunr/internal/term"
+	"github.com/Tunr-Sh/tunr/internal/tunnel"
 	"github.com/spf13/cobra"
 )
 

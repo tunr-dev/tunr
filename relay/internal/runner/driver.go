@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmetvural79/tunr/relay/internal/logger"
+	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 )
 
 // logQoS reports a density lever that didn't apply. These are always advisory:

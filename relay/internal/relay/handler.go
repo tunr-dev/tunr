@@ -10,9 +10,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ahmetvural79/tunr/relay/internal/auth"
-	relaydb "github.com/ahmetvural79/tunr/relay/internal/db"
-	"github.com/ahmetvural79/tunr/relay/internal/logger"
+	"github.com/Tunr-Sh/tunr/relay/internal/auth"
+	relaydb "github.com/Tunr-Sh/tunr/relay/internal/db"
+	"github.com/Tunr-Sh/tunr/relay/internal/logger"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
