@@ -549,8 +549,8 @@ means there is no code yet.
 | Inspector + replay, Prometheus, service install | ✅ Stable |
 | Python / Node SDKs | ✅ Stable |
 | Self-hosted tunnel relay | ✅ Stable |
-| `tunr deploy` + `tunr apps` + logs (v0.6.0+) | 🚧 Preview |
-| MCP cloud tools (`tunr_deploy`, `tunr_app_logs`, …) (v0.6.0+) | 🚧 Preview |
+| `tunr deploy` + `tunr apps` + logs (v0.6.1+) | 🚧 Preview |
+| MCP cloud tools (`tunr_deploy`, `tunr_app_logs`, …) (v0.6.1+) | 🚧 Preview |
 | Scale-to-zero (sleep/wake) | 🚧 Preview |
 | Self-hosted cloud runner | 🚧 Preview |
 | **Role-based sharing** (viewer/commenter/editor, `--org acme.com`) | 📋 Planned |

@@ -3,7 +3,34 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## v0.6.0 — 2026-08-12
+## v0.6.1 — Unreleased
+
+**v0.6.0 was tagged but never published** — its GitHub release stayed a draft,
+so `tunr update`, the install script and PyPI/npm never saw it, and the
+Homebrew cask that did point at it 404'd. v0.6.1 is the first public release
+carrying everything listed under v0.6.0 below.
+
+### Changed
+- **repo:** the canonical repository is now
+  [github.com/Tunr-Sh/tunr](https://github.com/Tunr-Sh/tunr). Go module paths
+  are `github.com/Tunr-Sh/tunr` and `github.com/Tunr-Sh/tunr/relay`;
+  `tunr update` and the release pipeline point there.
+- **docs:** new documentation at [tunr.sh/docs](https://tunr.sh/docs/),
+  written against the actual CLI. The README no longer claims `ams`/`sea`/`sin`
+  relays — one EU relay serves all traffic today; multi-region is planned.
+- **contacts:** `dev@tunr.sh` for security and development, `contact@tunr.sh`
+  for everything else.
+
+### Fixed
+- **install:** `https://tunr.sh/install.sh` returned 404 — the landing's
+  one-liner never worked. The script is now published with the site, falls back
+  to the legacy repository if the latest release can't be resolved, and honours
+  `TUNR_INSTALL_DIR`.
+- **deploy:** the >50 MB upload error suggested `.gitignore`/`.tunrignore`,
+  neither of which the packer reads.
+- **sdk:** Python `tunr.__version__` reported `0.4.0`.
+
+## v0.6.0 — 2026-08-12 (tagged, never published)
 
 **Cloud deploy leaves private preview.** `tunr deploy` builds a directory with
 Nixpacks and runs it in a gVisor sandbox on tunr's infrastructure — it sleeps
