@@ -90,6 +90,8 @@ if [[ "$MODE" == "full" || "$MODE" == "landing" ]]; then
   ssh "$REMOTE" "set -e
     mkdir -p '$LANDING_DIR'
     rsync -a --exclude='app/' '$SRC_DIR/landing/' '$LANDING_DIR/'
+    # tunr.sh/install.sh — the landing's one-liner. Single source: repo root.
+    install -m 0644 '$SRC_DIR/install.sh' '$LANDING_DIR/install.sh'
   "
 fi
 

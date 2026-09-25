@@ -1,8 +1,11 @@
 #!/bin/sh
 set -e
 
-REPO="Tunr-Sh/tunr"
-INSTALL_DIR="/usr/local/bin"
+# Canonical repo first, then the legacy mirror. Releases are published to both
+# while the move to Tunr-Sh settles, so a hiccup on one doesn't break installs.
+# Override with TUNR_REPO=owner/name.
+REPOS="${TUNR_REPO:-Tunr-Sh/tunr ahmetvural79/tunr}"
+INSTALL_DIR="${TUNR_INSTALL_DIR:-/usr/local/bin}"
 BINARY="tunr"
 
 log() {
@@ -35,9 +38,13 @@ esac
 
 log "Step 2/7: Resolving latest release..."
 
-TAG=$(curl -fsI "https://github.com/$REPO/releases/latest" | grep -i "^location:" | sed 's/.*tag\///' | tr -d '\r\n')
+TAG=""
+for REPO in $REPOS; do
+  TAG=$(curl -fsI "https://github.com/$REPO/releases/latest" 2>/dev/null | grep -i "^location:" | sed 's/.*tag\///' | tr -d '\r\n' || true)
+  [ -n "$TAG" ] && break
+done
 if [ -z "$TAG" ]; then
-  echo "Failed to fetch latest version"
+  echo "Failed to fetch latest version (tried: $REPOS)"
   exit 1
 fi
 
