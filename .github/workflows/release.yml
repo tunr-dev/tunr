@@ -75,6 +75,11 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     # NPM_TOKEN / PYPI_API_TOKEN tanımlı değilse adımlar atlanır (aşağıda if).
+    # Token'lar job seviyesinde olmalı: bir adımın `if`'i o adımın kendi `env`'ini
+    # görmez — adım seviyesindeyken koşul hep '' görüyor, yayın hiç çalışmıyordu.
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -98,14 +103,14 @@ jobs:
           fi
 
       - name: Build & publish npm package
-        if: env.NODE_AUTH_TOKEN != ''
+        if: env.NPM_TOKEN != ''
         working-directory: sdk/node
         run: |
           npm ci --ignore-scripts || npm install --ignore-scripts
           npm run build
           npm publish --access public --provenance
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
 
       # ── PyPI: tunr ──
       - uses: actions/setup-python@v5
@@ -129,6 +134,5 @@ jobs:
           python -m build
           python -m twine upload dist/*
         env:
-          PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
           TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_PASSWORD: ${{ env.PYPI_TOKEN }}
