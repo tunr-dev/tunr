@@ -21,6 +21,7 @@ func init() {
 			Version = strings.TrimPrefix(bi.Main.Version, "v")
 		}
 	}
+	rootCmd.Version = Version // rootCmd is built at package init, before this runs
 	tunnel.Version = Version
 }
 
