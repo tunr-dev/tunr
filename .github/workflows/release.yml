@@ -74,6 +74,9 @@ jobs:
     name: Publish SDKs (npm + PyPI)
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # npm publish --provenance imzası için OIDC
     # NPM_TOKEN / PYPI_API_TOKEN tanımlı değilse adımlar atlanır (aşağıda if).
     # Token'lar job seviyesinde olmalı: bir adımın `if`'i o adımın kendi `env`'ini
     # görmez — adım seviyesindeyken koşul hep '' görüyor, yayın hiç çalışmıyordu.
