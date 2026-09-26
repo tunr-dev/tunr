@@ -3,7 +3,13 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## v0.6.1 — Unreleased
+## Unreleased
+
+### Fixed
+- **cli:** `go install …/cmd/tunr@vX` builds reported `tunr version dev`; they
+  now report the module version.
+
+## v0.6.1 — 2026-09-26
 
 **v0.6.0 was tagged but never published** — its GitHub release stayed a draft,
 so `tunr update`, the install script and PyPI/npm never saw it, and the
@@ -29,6 +35,9 @@ carrying everything listed under v0.6.0 below.
 - **deploy:** the >50 MB upload error suggested `.gitignore`/`.tunrignore`,
   neither of which the packer reads.
 - **sdk:** Python `tunr.__version__` reported `0.4.0`.
+- **release:** the npm and PyPI publish steps never ran — their `if:` read a
+  variable from the step's own `env:`, which a step condition can't see. The
+  npm job also lacked the `id-token` permission `--provenance` needs.
 
 ## v0.6.0 — 2026-08-12 (tagged, never published)
 
