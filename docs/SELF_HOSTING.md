@@ -132,8 +132,9 @@ tunr login --relay https://tunnel.yourcompany.com
 tunr deploy --name my-app --relay https://tunnel.yourcompany.com
 ```
 
-See [SCALING.md](SCALING.md) for capacity thresholds and when to split the
-builder onto its own machine.
+As a rule of thumb, split the builder onto its own machine once builds start
+to show up in wake latency: the runner's `--role=builder` / `--role=agent`
+flags let you do that with a compose change.
 
 ## Systemd (without Docker)
 

@@ -37,7 +37,7 @@ golangci-lint run
 
 1. **Check existing issues** — your feature or bug may already be tracked
 2. **Open an issue first** for significant changes — let's discuss before you invest time
-3. **Security issues** — see [SECURITY.md](SECURITY.md), do NOT open public issues for vulnerabilities
+3. **Security issues** — see [SECURITY.md](../SECURITY.md), do NOT open public issues for vulnerabilities
 
 ## Code Standards
 

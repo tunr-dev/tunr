@@ -55,12 +55,10 @@ _build/
 # The following are NOT part of the open source CLI.
 # They live in private repositories.
 
-# NOTE: docs/, scripts/ and relay/migrations/ used to be ignored here as
-# "internal". They are now tracked — the schema history, the host-provisioning
-# scripts and the operational runbooks are things you cannot rebuild from
-# memory after a lost laptop, and keeping them out of version control was a
-# bigger risk than publishing them. They contain no credentials (verified);
-# every secret still lives in server-side .env files, which stay ignored below.
+# docs/ is public (user + contributor docs). Operational runbooks, launch copy,
+# billing and compliance notes stay local in docs/internal/ — back them up in a
+# private repo, not here.
+docs/internal/
 
 # Relay server binary (build artefact)
 relay/server

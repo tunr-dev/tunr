@@ -24,11 +24,15 @@ One command — or one MCP call — and the thing Claude Code just wrote stops l
 
 </div>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="An agent calls tunr_deploy; the build streams and the app goes live at https://standup.tunr.sh" width="800" />
+</p>
+
 ---
 
 ```bash
 $ tunr deploy --name sprint
-  ▲ Packing … 41 files, 210 KB
+  ▲ Uploading 41 files, 210 KB
   ▲ building (nixpacks auto-detect)
   🚀 Live: https://sprint.tunr.sh
      (sleeps when idle, wakes on request)
@@ -518,8 +522,7 @@ and `/readyz` on the inspector port.
 **Self-hosting.** `docker-compose.yml` runs the tunnel stack (relay + Caddy +
 Postgres); `docker-compose.runner.yml` adds the cloud runner. Point the CLI at
 it with `--relay https://tunnel.yourcompany.com` or `TUNR_RELAY_URL`. See
-[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md), and [docs/SCALING.md](docs/SCALING.md)
-for capacity planning.
+[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
 
 ---
 

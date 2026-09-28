@@ -160,8 +160,6 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     skip_upload: "{{ eq .Env.HOMEBREW_TAP_TOKEN \"\" }}"
-    url:
-      verified: "github.com/tunr-dev/tunr"
     # Unsigned binary: remove quarantine so macOS allows running
     hooks:
       post:
