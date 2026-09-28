@@ -13,9 +13,9 @@
 #   • the relay's IP on tunr-apps is assigned by Docker and changes whenever the
 #     container is recreated, so a statically saved rule would go stale anyway.
 #
-# So the rule has to be *recomputed*, not persisted. update.sh already does this
-# after every deploy; this script is the same logic on the boot path, installed
-# as a systemd oneshot (tunr-net-heal.service).
+# So the rule has to be *recomputed*, not persisted — after every relay
+# recreate and on every boot. This script is that logic, installed as a systemd
+# oneshot (tunr-net-heal.service); run it again after recreating the relay.
 #
 # Idempotent: deletes any prior copy of the rule before inserting, so repeated
 # runs cannot stack duplicates.

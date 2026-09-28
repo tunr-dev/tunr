@@ -255,9 +255,9 @@ Next:
      (No 'pid: host' needed: the cgroup path resolver falls back to the
      standard Docker layout, which the systemd cgroup driver provides.)
 
-  2. Deploy and confirm:  ./update.sh --relay-only
-     Expect "density levers: ON" from the script, and in
-     'docker logs tunr-runner': "cgroup levers ON" plus a non-zero swap line.
+  2. Restart the runner and confirm:
+       docker compose -f docker-compose.runner.yml up -d
+     Expect in 'docker logs tunr-runner': "cgroup levers ON" plus a non-zero swap line.
 
   3. Watch the payoff (RUNNER_SECRET is in /opt/tunr/.env):
        curl -H "Authorization: Bearer \$RUNNER_SECRET" http://<runner-ip>:9091/v1/stats

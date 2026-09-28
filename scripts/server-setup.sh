@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # server-setup.sh — provision a FRESH Ubuntu box for the tunr relay + cloud runner.
 #
-# Run this ONCE on a brand-new server (as root) before the first `./update.sh`.
+# Run this ONCE on a brand-new server (as root) before starting the stack.
 # It is idempotent: safe to re-run. It sets up the host layer only — Docker,
 # gVisor (runsc) for app isolation, the isolated `tunr-apps` network, and the
-# /opt/tunr directory skeleton. Secrets (.env) and the compose files are restored
-# separately (see "Next steps" printed at the end).
+# /opt/tunr directory skeleton. Configuration and the compose stack come next
+# (see docs/SELF_HOSTING.md, and "Next steps" printed at the end).
 #
 # Why gVisor: the cloud runner executes arbitrary / AI-generated user code. Bare
 # Docker shares the host kernel; gVisor (runsc) intercepts syscalls in userspace
@@ -14,7 +14,7 @@
 # DockerDriver at `docker run`), this is the v0 isolation story.
 #
 # Usage (on the server):
-#   curl -fsSL https://raw.githubusercontent.com/... /server-setup.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/tunr-dev/tunr/main/scripts/server-setup.sh | sudo bash
 #   # or: scp this file over and run:  sudo bash server-setup.sh
 #
 # Tested on Ubuntu 24.04 / 26.04 (Hetzner Cloud, KVM guest → gVisor systrap platform).
@@ -99,14 +99,14 @@ Host layer ready:
   • Network:  $APPS_NETWORK (icc=false)
   • Dir:      $OPT_DIR (src, build-work)
 
-Next steps (from your laptop / repo):
-  1. Point the 'tunr-prod' SSH alias at the NEW server IP (~/.ssh/config).
-  2. Restore server secrets + compose files into $OPT_DIR:
-       - $OPT_DIR/.env                       (TUNR_JWT_SECRET, DATABASE_URL, Paddle…)
-       - $OPT_DIR/src/landing/app/.env.local (dashboard: Firebase, ADMIN_EMAILS, DATABASE_URL…)
-       - $OPT_DIR/docker-compose.dashboard.yml, docker-compose.caddy.yml
-     (These live only on the server and are never synced by update.sh.)
-  3. Deploy:   ./update.sh
-     update.sh will apply migrations (incl. 003_apps.sql), rebuild the relay,
-     ensure the '$APPS_NETWORK' network, and connect the relay container to it.
+Next steps (see docs/SELF_HOSTING.md for the full walkthrough):
+  1. Density prerequisites — zram + cgroup soft limits (not optional for the
+     cloud runner):   sudo ./scripts/host-density.sh
+  2. Put the repo in $OPT_DIR/src and write $OPT_DIR/.env
+     (TUNR_DOMAIN, TUNR_JWT_SECRET, DATABASE_URL, RUNNER_URL, RUNNER_SECRET).
+  3. Start the stack:
+       docker compose up -d                                   # relay + Caddy + Postgres
+       docker compose -f docker-compose.runner.yml up -d      # cloud runner (tunr deploy)
+  4. Attach the relay to the app network so it can reach deployed apps:
+       docker network connect $APPS_NETWORK <relay-container>
 EOF

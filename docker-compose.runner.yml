@@ -3,8 +3,8 @@
 # Compose add-on, layered onto docker-compose.yml under the same project name:
 #   docker compose -f docker-compose.yml -f docker-compose.runner.yml up -d runner
 #
-# Paths are relative to the compose directory (/opt/tunr on the production box),
-# where ./src is the rsync'd repo checkout — see update.sh.
+# Paths are relative to the compose directory (e.g. /opt/tunr), where ./src is
+# the repo checkout — see docs/SELF_HOSTING.md.
 #
 # The runner is the only component that touches Docker. It builds app images and
 # drives the app lifecycle (run / wake / sleep+reclaim / stop), which is why it

@@ -60,6 +60,10 @@ _build/
 # private repo, not here.
 docs/internal/
 
+# Production deploy script — it targets tunr's own server (host, paths, SSH).
+# Self-hosters follow docs/SELF_HOSTING.md instead.
+update.sh
+
 # Relay server binary (build artefact)
 relay/server
 
