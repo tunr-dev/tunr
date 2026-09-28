@@ -167,6 +167,28 @@ func (db *DB) ListAppsByUser(ctx context.Context, userID string) ([]AppListRow, 
 	return out, rows.Err()
 }
 
+// CountAppsByUser returns how many apps the user owns (plan quota).
+func (db *DB) CountAppsByUser(ctx context.Context, userID string) (int, error) {
+	const q = `SELECT count(*) FROM apps WHERE user_id = $1::uuid`
+	var n int
+	err := db.pool.QueryRow(ctx, q, userID).Scan(&n)
+	return n, err
+}
+
+// CountDeploysSince returns how many deployments the user started across all
+// of their apps within the last `hours` hours (plan quota).
+func (db *DB) CountDeploysSince(ctx context.Context, userID string, hours int) (int, error) {
+	const q = `
+		SELECT count(*)
+		FROM deployments d
+		JOIN apps a ON a.id = d.app_id
+		WHERE a.user_id = $1::uuid
+		  AND d.created_at > now() - make_interval(hours => $2)`
+	var n int
+	err := db.pool.QueryRow(ctx, q, userID, hours).Scan(&n)
+	return n, err
+}
+
 // UpsertCloudRoute maps a subdomain to a cloud upstream (fires NOTIFY routes_changed).
 func (db *DB) UpsertCloudRoute(ctx context.Context, subdomain, appID, cloudURL string, wakeTimeout int) error {
 	if wakeTimeout <= 0 {

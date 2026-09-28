@@ -291,7 +291,7 @@ func handleProRequired(port int, subdomain, domain, password string) error {
 	fmt.Println()
 	term.Red.Printf("  %s requires a Pro subscription.\n", feature)
 	fmt.Println()
-	term.Dim.Println("  Upgrade at: https://app.tunr.sh/settings/billing")
+	term.Dim.Println("  Upgrade at: https://app.tunr.sh/dashboard/settings/billing")
 	fmt.Println()
 	term.Dim.Printf("  Free:  tunr share --port %d\n", port)
 	term.Dim.Printf("  Pro:   tunr share --port %d --subdomain myapp\n", port)

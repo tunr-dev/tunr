@@ -1,6 +1,7 @@
 package relay_test
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -183,4 +184,66 @@ func TestRegistryPingUpdate(t *testing.T) {
 	r.UpdatePing("nonexistent-id-should-not-panic")
 
 	r.Unregister(entry.ID)
+}
+
+// TestRegistryRegisterLimited — per-user cap on open tunnels
+func TestRegistryRegisterLimited(t *testing.T) {
+	r := relay.NewRegistry()
+
+	for i := 0; i < 2; i++ {
+		if _, err := r.RegisterLimited("user-a", "", "http", "", 2); err != nil {
+			t.Fatalf("tunnel %d under the cap failed: %v", i+1, err)
+		}
+	}
+	if _, err := r.RegisterLimited("user-a", "", "http", "", 2); !errors.Is(err, relay.ErrTunnelLimit) {
+		t.Fatalf("3rd tunnel: want ErrTunnelLimit, got %v", err)
+	}
+	// Another user is unaffected; 0 means no cap.
+	if _, err := r.RegisterLimited("user-b", "", "http", "", 2); err != nil {
+		t.Fatalf("other user blocked: %v", err)
+	}
+	for i := 0; i < 5; i++ {
+		if _, err := r.RegisterLimited("user-c", "", "http", "", 0); err != nil {
+			t.Fatalf("uncapped register failed: %v", err)
+		}
+	}
+}
+
+// TestRegistryRegisterLimitedFreesSlot — closing a tunnel gives the slot back
+func TestRegistryRegisterLimitedFreesSlot(t *testing.T) {
+	r := relay.NewRegistry()
+	e, err := r.RegisterLimited("user-a", "", "http", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RegisterLimited("user-a", "", "http", "", 1); !errors.Is(err, relay.ErrTunnelLimit) {
+		t.Fatalf("want ErrTunnelLimit, got %v", err)
+	}
+	r.Unregister(e.ID)
+	if _, err := r.RegisterLimited("user-a", "", "http", "", 1); err != nil {
+		t.Fatalf("slot not freed after Unregister: %v", err)
+	}
+}
+
+// TestRegistryRegisterLimitedRace — concurrent connects can't overshoot the cap
+func TestRegistryRegisterLimitedRace(t *testing.T) {
+	r := relay.NewRegistry()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	ok := 0
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := r.RegisterLimited("user-a", "", "http", "", 3); err == nil {
+				mu.Lock()
+				ok++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if ok != 3 {
+		t.Fatalf("want exactly 3 tunnels under a cap of 3, got %d", ok)
+	}
 }

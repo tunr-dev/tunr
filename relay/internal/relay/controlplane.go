@@ -11,6 +11,7 @@ package relay
 // of this in the next stage. Auth reuses the existing CLI login JWT.
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -128,15 +129,36 @@ func (c *ControlPlane) handleAppLogs(w http.ResponseWriter, r *http.Request) {
 
 // authUser extracts and verifies the Bearer JWT, returning the user id.
 func (c *ControlPlane) authUser(r *http.Request) (string, bool) {
+	id, _, ok := c.authUserPlan(r)
+	return id, ok
+}
+
+// authUserPlan is authUser plus the plan claim (a fallback only — see resolveUserPlan).
+func (c *ControlPlane) authUserPlan(r *http.Request) (userID, claimPlan string, ok bool) {
 	h := r.Header.Get("Authorization")
 	if !strings.HasPrefix(h, "Bearer ") {
-		return "", false
+		return "", "", false
 	}
 	claims, err := c.jwt.Verify(strings.TrimPrefix(h, "Bearer "))
 	if err != nil || claims.UserID == "" {
-		return "", false
+		return "", "", false
 	}
-	return claims.UserID, true
+	return claims.UserID, claims.Plan, true
+}
+
+// appQuotaExceeded reports whether creating one more app would pass the
+// user's plan limit. Returns the message to show when it would.
+func (c *ControlPlane) appQuotaExceeded(ctx context.Context, userID, plan string) (string, bool) {
+	q := quotaFor(plan)
+	n, err := c.db.CountAppsByUser(ctx, userID)
+	if err != nil {
+		logger.Warn("app quota check for %s: %v", userID, err)
+		return "", false // fail open: a DB hiccup shouldn't block deploys
+	}
+	if n >= q.Apps {
+		return appQuotaMsg(plan, q), true
+	}
+	return "", false
 }
 
 type createAppReq struct {
@@ -166,6 +188,12 @@ func (c *ControlPlane) handleApps(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
+		_, claimPlan, _ := c.authUserPlan(r)
+		plan := resolveUserPlan(r.Context(), c.db, userID, claimPlan)
+		if msg, over := c.appQuotaExceeded(r.Context(), userID, plan); over {
+			writeJSONError(w, http.StatusForbidden, msg)
+			return
+		}
 		c.createApp(w, r, userID)
 	case http.MethodGet:
 		c.listApps(w, r, userID)
@@ -337,11 +365,13 @@ func (c *ControlPlane) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusServiceUnavailable, "deploy is not available (no runner configured)")
 		return
 	}
-	userID, ok := c.authUser(r)
+	userID, claimPlan, ok := c.authUserPlan(r)
 	if !ok {
 		writeJSONError(w, http.StatusUnauthorized, "valid Bearer token required (run: tunr login)")
 		return
 	}
+	plan := resolveUserPlan(r.Context(), c.db, userID, claimPlan)
+	quota := quotaFor(plan)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -389,6 +419,18 @@ func (c *ControlPlane) handleDeploy(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	// Plan quotas. Redeploying an app you already own never counts as a new app.
+	if existing, found, err := c.db.GetAppByName(ctx, meta.Name); err == nil && (!found || existing.UserID != userID) {
+		if msg, over := c.appQuotaExceeded(ctx, userID, plan); over {
+			fail(msg)
+			return
+		}
+	}
+	if n, err := c.db.CountDeploysSince(ctx, userID, 24); err == nil && n >= quota.DeploysPerDay {
+		fail(deployQuotaMsg(plan, quota))
+		return
+	}
+
 	app, _, err := c.db.GetOrCreateAppByName(ctx, userID, meta.Name, newAppID(), newEdgeSecret(), meta.InternalPort)
 	if err != nil {
 		fail(err.Error())
@@ -410,7 +452,7 @@ func (c *ControlPlane) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		"internal_port": app.InternalPort,
 		"edge_secret":   app.EdgeSecret,
 		"env":           meta.Env,
-		"memory_mb":     256,
+		"memory_mb":     quota.AppMemoryMB,
 		"cpus":          1.0,
 	})
 

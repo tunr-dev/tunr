@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -202,7 +203,8 @@ func (h *Handler) ServeTunnel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		userID = claims.UserID
-		userPlan = claims.Plan
+		// DB first, so an upgrade applies without a fresh login.
+		userPlan = resolveUserPlan(r.Context(), h.db, claims.UserID, claims.Plan)
 		isAuthenticated = true
 	} else {
 		userID = "anon:" + r.RemoteAddr
@@ -237,7 +239,19 @@ func (h *Handler) ServeTunnel(w http.ResponseWriter, r *http.Request) {
 	if protocol == "" {
 		protocol = "http"
 	}
-	entry, err := h.registry.RegisterWithProtocol(userID, hello.Subdomain, protocol, hello.Region)
+	// Signed-in users get a per-plan cap on open tunnels. Anonymous tunnels
+	// aren't capped here: behind Caddy every anonymous client shares one
+	// RemoteAddr, so a per-address cap would lock everyone out at once. They
+	// are held to the lowest request rate instead (rate_limiter.go, "anon").
+	maxTunnels := 0
+	if isAuthenticated {
+		maxTunnels = quotaFor(userPlan).ConcurrentTunnels
+	}
+	entry, err := h.registry.RegisterLimited(userID, hello.Subdomain, protocol, hello.Region, maxTunnels)
+	if errors.Is(err, ErrTunnelLimit) {
+		writeErr(conn, tunnelQuotaMsg(userPlan, quotaFor(userPlan)))
+		return
+	}
 	if err != nil {
 		writeErr(conn, err.Error())
 		return

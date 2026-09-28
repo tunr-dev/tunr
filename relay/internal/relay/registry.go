@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -130,8 +131,31 @@ func (r *Registry) Register(userID string, preferredSubdomain string) (*TunnelEn
 
 // RegisterWithProtocol — yeni tunnel kayıt et ve bir ID/subdomain ver
 func (r *Registry) RegisterWithProtocol(userID, preferredSubdomain, protocol, region string) (*TunnelEntry, error) {
+	return r.RegisterLimited(userID, preferredSubdomain, protocol, region, 0)
+}
+
+// ErrTunnelLimit is returned by RegisterLimited when the user already has
+// maxPerUser tunnels open.
+var ErrTunnelLimit = errors.New("tunnel limit reached")
+
+// RegisterLimited is RegisterWithProtocol with a per-user cap on open tunnels
+// (0 = no cap). The count and the insert happen under the same lock, so two
+// connections racing in can't both slip past the limit.
+func (r *Registry) RegisterLimited(userID, preferredSubdomain, protocol, region string, maxPerUser int) (*TunnelEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if maxPerUser > 0 {
+		open := 0
+		for _, t := range r.tunnels {
+			if t.UserID == userID {
+				open++
+			}
+		}
+		if open >= maxPerUser {
+			return nil, ErrTunnelLimit
+		}
+	}
 
 	// Subdomain belirle
 	subdomain := preferredSubdomain
