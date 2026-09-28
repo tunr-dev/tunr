@@ -59,8 +59,9 @@ Dockerfile), gets an HTTPS URL, sleeps when nobody's using it and wakes on the
 next request — so hosting a dozen barely-used internal tools costs about what
 hosting one does.
 
-The 3-second tunnel tunr started as is still here, still free. It's now the
-on-ramp rather than the product.
+The 3-second tunnel tunr started as is still here, still free — and it's the
+safest way to demo work-in-progress to a client: read-only mode, crash
+protection and a feedback button, one flag each ([Client demos](#client-demos--for-freelancers-and-vibecoders)).
 
 ---
 
@@ -162,6 +163,29 @@ descriptions say so: *deploy* means "host this, it should outlive my laptop",
 
 ---
 
+## Client demos — for freelancers and vibecoders
+
+Showing a client something that still runs on your laptop? Three flags make the
+free tunnel safe to hand to someone who isn't a developer.
+
+<p align="center">
+  <img src="assets/client-demo.gif" alt="tunr share with --demo, --freeze and --inject-widget: a client's delete is intercepted, a crash is hidden, feedback arrives in the terminal" width="360" />
+</p>
+
+```bash
+tunr share -p 3000 --demo --freeze --inject-widget --qr
+```
+
+| Flag | What the client sees | What actually happens |
+|---|---|---|
+| `--demo` | Buttons work — "Order deleted ✓" | `POST`/`PUT`/`PATCH`/`DELETE` are answered by tunr with a `200` and never reach your app. Your database stays clean. |
+| `--freeze` | The page, as it was a second ago | Your dev server crashed or returned a 5xx; tunr serves the last good response (`X-Tunr-Freeze-Cache: HIT`) while you fix it. |
+| `--inject-widget` | A 💬 **Feedback** button on every page | Their message, page URL and screen size land in your terminal. No code changes — tunr injects it into the HTML. |
+| `--auto-login` | Already signed in to a demo account | tunr adds your session cookie (or `Bearer …` header) to every request: `--auto-login "session=demo-token"`. |
+| `--qr` · `--password` · `--ttl 1h` | A QR code to open it on their phone; a password; a link that expires | Access control that takes one flag each. |
+
+---
+
 ## Tunnels
 
 Still free, still unlimited, still 3 seconds.
@@ -174,52 +198,6 @@ tunr share --port 3000
 HTTP/HTTPS with WebSocket (HMR works), plus raw **TCP**, **UDP** and
 end-to-end-encrypted **TLS** tunnels — all multiplexed over one connection.
 Traffic is served from a single EU relay today; more regions are planned.
-
-<details>
-<summary><b>Demo features</b> — freeze, read-only, feedback widget, auto-login</summary>
-
-<br/>
-
-Built for showing work-in-progress to someone who is not a developer.
-
-**❄️ Freeze Mode (`--freeze`)** — if your local server crashes mid-demo, tunr
-serves the last successful response from memory. The other person never sees a
-broken page.
-
-```bash
-tunr share --port 3000 --freeze
-```
-
-**🛡️ Read-Only Demo Mode (`--demo`)** — intercepts `POST`, `PUT` and `DELETE`
-at the proxy layer. They can click "Place Order"; nothing writes to your
-database.
-
-```bash
-tunr share --port 3000 --demo
-```
-
-**💬 Feedback Widget (`--inject-widget`)** — injects an overlay into every HTML
-page served through the tunnel. Viewers pin visual feedback; it arrives in your
-terminal in real time.
-
-```bash
-tunr share --port 3000 --inject-widget
-```
-
-**🔑 Auto-Login Bypass (`--auto-login`)** — inject an auth cookie so the visitor
-lands on a demo account. No signup, no email verification.
-
-```bash
-tunr share --port 3000 --auto-login "Cookie: session=demo-token"
-```
-
-All at once:
-
-```bash
-tunr share --port 3000 --demo --freeze --inject-widget
-```
-
-</details>
 
 <details>
 <summary><b>Access control</b> — password, bearer token, IP whitelist, TTL, QR</summary>
