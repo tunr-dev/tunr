@@ -64,7 +64,7 @@ on-ramp rather than the product.
 
 ```bash
 # macOS / Linux — Homebrew
-brew install ahmetvural79/tap/tunr
+brew install tunr-dev/tap/tunr
 
 # macOS / Linux — install script
 curl -fsSL https://raw.githubusercontent.com/tunr-dev/tunr/main/install.sh | sh

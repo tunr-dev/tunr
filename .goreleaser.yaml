@@ -135,7 +135,7 @@ release:
 
     ```bash
     # macOS / Linux (Homebrew)
-    brew install ahmetvural79/tap/tunr
+    brew install tunr-dev/tap/tunr
 
     # macOS / Linux (install script)
     curl -fsSL https://raw.githubusercontent.com/tunr-dev/tunr/main/install.sh | sh
@@ -156,7 +156,7 @@ homebrew_casks:
     description: "local → public tunnel tool for Vibecoders"
     homepage: "https://tunr.sh"
     repository:
-      owner: ahmetvural79
+      owner: tunr-dev
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     skip_upload: "{{ eq .Env.HOMEBREW_TAP_TOKEN \"\" }}"

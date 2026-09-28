@@ -79,7 +79,7 @@ tunr is a zero-config local-to-public tunnel tool. Share your local server with 
 ### Install
 
 - `curl -sL https://tunr.sh/install.sh | sh`
-- Homebrew (macOS): `brew install ahmetvural79/tap/tunr`
+- Homebrew (macOS): `brew install tunr-dev/tap/tunr`
 
 ### Links
 
@@ -285,7 +285,7 @@ curl -sI https://app.tunr.sh | head -5
 ```bash
 # 1. Update CLI (from latest release)
 curl -sL https://tunr.sh/install.sh | sh
-# veya: brew upgrade ahmetvural79/tap/tunr
+# veya: brew upgrade tunr-dev/tap/tunr
 
 # 2. Test HTTP server
 python3 -m http.server 9999 &

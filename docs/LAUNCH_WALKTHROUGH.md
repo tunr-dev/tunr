@@ -147,7 +147,7 @@ tunr --version
 
 ```bash
 # Install
-brew install ahmetvural79/tap/tunr
+brew install tunr-dev/tap/tunr
 
 # Or update existing
 brew upgrade tunr

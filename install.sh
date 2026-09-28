@@ -70,7 +70,7 @@ if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 15 --progress-bar "$UR
   echo "  - Release not yet published for ${OS}/${ARCH}"
   echo "  - Temporary GitHub/CDN issue — try again in a minute"
   echo ""
-  echo "Alternative: brew install ahmetvural79/tap/tunr"
+  echo "Alternative: brew install tunr-dev/tap/tunr"
   exit 1
 fi
 
