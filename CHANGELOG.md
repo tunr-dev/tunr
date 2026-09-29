@@ -12,6 +12,11 @@ All notable changes to tunr are documented here. This project adheres to
   the app and get the real page, without resetting the idle clock. SEO tools and
   scanners on a sleeping app's real pages get `503` + `Retry-After` instead of
   the synthetic 200; health checks and uptime monitors are unchanged.
+- **relay:** after a relay restart (idle clocks live in memory), an app reached
+  only by monitors or crawlers never slept again: the sweeper skipped any app
+  with no recorded request. It now starts the clock the first time it sees such
+  an app, so a fresh deploy or a restarted relay gets one full idle window and
+  then the normal HOT → WARM → STOPPED ladder.
 - **cli:** `--json` output was interleaved with `INFO` lines on stdout, so
   `tunr share/tcp/udp/tls --json | jq` failed. Progress lines now go to stderr
   whenever `--json` is set.

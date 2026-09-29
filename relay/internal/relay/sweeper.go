@@ -179,7 +179,13 @@ func sweepOnce(ctx context.Context, store *RouteStore, r appSleeper, sleepAfter,
 	store.Each(func(_ string, up *CloudUpstream) {
 		last := up.LastSeen()
 		if last.IsZero() {
-			return // never served yet — leave freshly-deployed apps up
+			// Never served since this relay learned of it: a fresh deploy, or
+			// any app after a relay restart (lastSeen lives in memory). Treat
+			// that as "seen now" — a full idle window, then the normal ladder.
+			// Skipping it instead meant an app reached only by monitors or
+			// crawlers after a restart stayed awake forever.
+			up.touchIfUnseen()
+			return
 		}
 		cands = append(cands, candidate{up: up, idle: now.Sub(last)})
 	})

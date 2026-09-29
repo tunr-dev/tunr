@@ -113,10 +113,11 @@ func TestSweepOnceNeverSleepsPinnedApp(t *testing.T) {
 	}
 }
 
-// A freshly deployed app that has never served a request must stay up — its
-// zero lastSeen would otherwise read as infinitely idle and put it straight to
-// sleep before anyone could reach it.
-func TestSweepOnceSkipsNeverServedApp(t *testing.T) {
+// An app never served since the relay learned of it (fresh deploy, or any app
+// after a relay restart) must not be slept on sight — a zero lastSeen reads as
+// infinitely idle — but it must not be skipped forever either, or an app that
+// only monitors and crawlers reach never sleeps. The sweep starts its clock.
+func TestSweepOnceStartsClockOnNeverServedApp(t *testing.T) {
 	store := NewRouteStore()
 	up := newTestUpstream("a_fresh", -1) // leave lastSeen zero
 	store.SetCloud("fresh", up)
@@ -125,7 +126,19 @@ func TestSweepOnceSkipsNeverServedApp(t *testing.T) {
 	sweepOnce(context.Background(), store, f, 45*time.Second, 20*time.Minute)
 
 	if slept, stopped := f.counts(); slept != 0 || stopped != 0 {
-		t.Fatalf("fresh app was touched: slept=%d stopped=%d", slept, stopped)
+		t.Fatalf("fresh app was put down on first sight: slept=%d stopped=%d", slept, stopped)
+	}
+	if up.LastSeen().IsZero() {
+		t.Fatal("sweep left lastSeen zero — the app would never sleep")
+	}
+
+	// Once its window has passed with no traffic, the normal ladder applies.
+	up.lastSeenMu.Lock()
+	up.lastSeen = time.Now().Add(-time.Minute)
+	up.lastSeenMu.Unlock()
+	sweepOnce(context.Background(), store, f, 45*time.Second, 20*time.Minute)
+	if slept, _ := f.counts(); slept != 1 {
+		t.Fatalf("app idle past its window was not slept (slept=%d)", slept)
 	}
 }
 
