@@ -3,7 +3,15 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v0.6.2 — 2026-09-29
+
+### Security
+- **proxy:** text sent to the `--inject-widget` feedback and JS-error endpoints
+  was printed to the developer's terminal as-is, so a visitor could send ANSI
+  escape sequences to spoof output or reach terminal-emulator bugs. Every field
+  is now scrubbed of control characters, escape sequences and bidi overrides,
+  capped at 500 characters, and request bodies are limited to 8 KB. Nothing
+  sent to these endpoints was ever executed.
 
 ### Fixed
 - **cli:** `go install …/cmd/tunr@vX` builds reported `tunr version dev`; they
