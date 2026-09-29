@@ -6,6 +6,12 @@ All notable changes to tunr are documented here. This project adheres to
 ## Unreleased
 
 ### Fixed
+- **relay:** a search crawler (Googlebot, Bingbot, YandexBot) visiting a real
+  page of a sleeping app got the edge's synthetic `200 ok` meant for health
+  checks, so the page could be indexed as "ok". Crawlers on real pages now wake
+  the app and get the real page, without resetting the idle clock. SEO tools and
+  scanners on a sleeping app's real pages get `503` + `Retry-After` instead of
+  the synthetic 200; health checks and uptime monitors are unchanged.
 - **cli:** `--json` output was interleaved with `INFO` lines on stdout, so
   `tunr share/tcp/udp/tls --json | jq` failed. Progress lines now go to stderr
   whenever `--json` is set.

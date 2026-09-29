@@ -231,3 +231,97 @@ func mustURL(t *testing.T, s string) *url.URL {
 	}
 	return u
 }
+
+// sleepingUpstream returns an upstream marked WARM whose waker starts a server
+// answering "real page", and a counter of wake calls.
+func sleepingUpstream(t *testing.T) (*CloudUpstream, *int32) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+
+	var wakes int32
+	waker := wakerFunc(func(ctx context.Context, appID string) (string, error) {
+		if atomic.AddInt32(&wakes, 1) > 1 {
+			return "", nil
+		}
+		l, err := net.Listen("tcp", addr)
+		if err != nil {
+			return "", err
+		}
+		srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, "real page")
+		})}
+		go func() { _ = srv.Serve(l) }()
+		t.Cleanup(func() { _ = srv.Close() })
+		return "", nil
+	})
+	target, _ := url.Parse("http://" + addr)
+	up := NewCloudUpstream("a_crawl", target, []byte("s"), waker, nil)
+	up.WakeTimeout = 5 * time.Second
+	up.SetSleepState(SleepWarm)
+	return up, &wakes
+}
+
+// A search crawler on a sleeping app must get the real page — a synthetic
+// "ok" would be indexed as the page's content — but must not reset the idle
+// clock, or crawling alone would keep the app up forever.
+func TestCloudUpstream_CrawlerGetsRealPageWithoutKeepingAppAwake(t *testing.T) {
+	up, wakes := sleepingUpstream(t)
+	before := up.LastSeen()
+
+	req := httptest.NewRequest(http.MethodGet, "http://site.tunr.sh/blog/post", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+	rec := httptest.NewRecorder()
+	up.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "real page" {
+		t.Fatalf("crawler got %d %q, want 200 %q", rec.Code, rec.Body.String(), "real page")
+	}
+	if atomic.LoadInt32(wakes) != 1 {
+		t.Fatalf("wake called %d times, want 1", atomic.LoadInt32(wakes))
+	}
+	if !up.LastSeen().Equal(before) {
+		t.Fatal("crawler reset the idle clock")
+	}
+	if up.Pinned() {
+		t.Fatal("crawler left the app pinned after the request")
+	}
+}
+
+// SEO tools and scanners on a real page of a sleeping app get 503 without a wake.
+func TestCloudUpstream_SleepingBotOnPageGets503(t *testing.T) {
+	up, wakes := sleepingUpstream(t)
+
+	req := httptest.NewRequest(http.MethodGet, "http://site.tunr.sh/pricing", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)")
+	rec := httptest.NewRecorder()
+	up.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	if atomic.LoadInt32(wakes) != 0 {
+		t.Fatal("a bot woke the app")
+	}
+}
+
+// Monitors keep getting the synthetic 200, still without a wake.
+func TestCloudUpstream_SleepingMonitorGetsSyntheticOK(t *testing.T) {
+	up, wakes := sleepingUpstream(t)
+
+	req := httptest.NewRequest(http.MethodGet, "http://site.tunr.sh/", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0+(compatible; UptimeRobot/2.0; http://uptimerobot.com/)")
+	rec := httptest.NewRecorder()
+	up.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Header().Get("X-Tunr-Answered-By") != "edge" {
+		t.Fatalf("monitor got %d (answered-by %q), want synthetic 200", rec.Code, rec.Header().Get("X-Tunr-Answered-By"))
+	}
+	if atomic.LoadInt32(wakes) != 0 {
+		t.Fatal("a monitor woke the app")
+	}
+}

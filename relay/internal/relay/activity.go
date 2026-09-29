@@ -18,6 +18,10 @@ package relay
 //	          server trick, but free because the relay is already in the path).
 //	Normal  — real traffic. Wakes the app and keeps it warm.
 //	Pin     — long-lived connection. Sleep is forbidden while one is open.
+//	Crawl   — a search-engine crawler on a real page. It must get the real
+//	          page (a synthetic "ok" would be indexed as the page's content),
+//	          so it wakes the app for the duration of the request, but it never
+//	          resets the idle clock: a crawler alone can't keep an app up.
 //
 // Deliberately conservative: anything unrecognised is Normal. Misclassifying
 // real traffic as a probe would let us freeze an app someone is using, which is
@@ -38,6 +42,9 @@ const (
 	ActivityProbe
 	// ActivityPin is a long-lived connection: forbids sleep while it is open.
 	ActivityPin
+	// ActivityCrawl is a search-engine crawler on a real page: wakes the app
+	// and holds it for the request, never resets the clock.
+	ActivityCrawl
 )
 
 func (a ActivityClass) String() string {
@@ -46,6 +53,8 @@ func (a ActivityClass) String() string {
 		return "probe"
 	case ActivityPin:
 		return "pin"
+	case ActivityCrawl:
+		return "crawl"
 	default:
 		return "normal"
 	}
@@ -66,10 +75,10 @@ var probePaths = map[string]bool{
 	"/.well-known/health": true,
 }
 
-// probeAgents are substrings (lowercased) of User-Agents belonging to monitors
-// and crawlers — traffic that proves an app is reachable but means nobody is
-// actually using it.
-var probeAgents = []string{
+// monitorAgents are substrings (lowercased) of User-Agents belonging to uptime
+// monitors. They only care about the status code, so a sleeping app may answer
+// them with a synthetic 200 on any path.
+var monitorAgents = []string{
 	"uptimerobot",
 	"pingdom",
 	"statuscake",
@@ -83,11 +92,22 @@ var probeAgents = []string{
 	"prometheus",
 	"blackbox_exporter",
 	"kube-probe",
+}
+
+// searchAgents are search-engine crawlers. Whatever they receive may be indexed
+// as the page, so on a real path they get the real page — see ActivityCrawl.
+var searchAgents = []string{
 	"googlebot",
 	"bingbot",
+	"yandexbot",
+}
+
+// botAgents are SEO tools and internet scanners: never worth a wake, and not
+// monitors either, so a sleeping app tells them to come back later (503)
+// rather than claiming a page says "ok".
+var botAgents = []string{
 	"ahrefsbot",
 	"semrushbot",
-	"yandexbot",
 	"censys",
 	"shodan",
 	"zgrab",
@@ -102,20 +122,15 @@ func ClassifyActivity(r *http.Request) ActivityClass {
 		return ActivityPin
 	}
 
-	// Bare liveness pokes at the root: HEAD / and OPTIONS / carry no user intent.
-	if (r.Method == http.MethodHead || r.Method == http.MethodOptions) && normalizePath(r.URL.Path) == "/" {
+	if isHealthShaped(r) {
 		return ActivityProbe
 	}
 
-	// Conventional health endpoints, on read-only methods only — a POST to
-	// /health is somebody's API, not a monitor.
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		if probePaths[normalizePath(r.URL.Path)] {
-			return ActivityProbe
-		}
+	ua := r.Header.Get("User-Agent")
+	if uaContains(ua, searchAgents) {
+		return ActivityCrawl
 	}
-
-	if isProbeAgent(r.Header.Get("User-Agent")) {
+	if uaContains(ua, monitorAgents) || uaContains(ua, botAgents) {
 		return ActivityProbe
 	}
 
@@ -130,6 +145,24 @@ func ClassifyActivity(r *http.Request) ActivityClass {
 	return ActivityNormal
 }
 
+// isHealthShaped reports a bare liveness poke (HEAD / or OPTIONS /) or a GET/HEAD
+// to a conventional health endpoint. A POST to /health is somebody's API.
+func isHealthShaped(r *http.Request) bool {
+	path := normalizePath(r.URL.Path)
+	if (r.Method == http.MethodHead || r.Method == http.MethodOptions) && path == "/" {
+		return true
+	}
+	return (r.Method == http.MethodGet || r.Method == http.MethodHead) && probePaths[path]
+}
+
+// SynthesizeForProbe reports whether a probe to a sleeping app may be answered
+// with a synthetic 200: health-shaped requests and uptime monitors, which only
+// read the status. Other probes (SEO tools, scanners, low bot scores on a real
+// page) would record "ok" as the page, so they get a 503 instead.
+func SynthesizeForProbe(r *http.Request) bool {
+	return isHealthShaped(r) || uaContains(r.Header.Get("User-Agent"), monitorAgents)
+}
+
 // normalizePath lowercases and strips a trailing slash so "/Health/" matches.
 func normalizePath(p string) string {
 	p = strings.ToLower(p)
@@ -142,12 +175,12 @@ func normalizePath(p string) string {
 	return p
 }
 
-func isProbeAgent(ua string) bool {
+func uaContains(ua string, agents []string) bool {
 	if ua == "" {
 		return false
 	}
 	ua = strings.ToLower(ua)
-	for _, a := range probeAgents {
+	for _, a := range agents {
 		if strings.Contains(ua, a) {
 			return true
 		}
@@ -208,4 +241,18 @@ func writeSyntheticHealth(w http.ResponseWriter, appID string) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
 	_ = appID
+}
+
+// writeSleepingRetry turns away a non-monitor bot on a real page of a sleeping
+// app without waking it. 503 + Retry-After is the status crawlers and SEO tools
+// read as "temporarily unavailable, come back", not as the page's content.
+func writeSleepingRetry(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Content-Type", "text/plain; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Retry-After", "3600")
+	h.Set("X-Tunr-Sleeping", "1")
+	h.Set("X-Tunr-Answered-By", "edge")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = w.Write([]byte("app is asleep\n"))
 }

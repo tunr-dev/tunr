@@ -39,9 +39,20 @@ func TestClassifyActivity(t *testing.T) {
 		{"uptimerobot UA", req("GET", "/", map[string]string{
 			"User-Agent": "Mozilla/5.0+(compatible; UptimeRobot/2.0; http://uptimerobot.com/)",
 		}), ActivityProbe},
-		{"googlebot UA", req("GET", "/some/page", map[string]string{
+		{"ahrefs UA", req("GET", "/some/page", map[string]string{
+			"User-Agent": "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
+		}), ActivityProbe},
+		{"googlebot on /health", req("GET", "/health", map[string]string{
 			"User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)",
 		}), ActivityProbe},
+
+		// Search crawlers on a real page must see the real page.
+		{"googlebot on a page", req("GET", "/some/page", map[string]string{
+			"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+		}), ActivityCrawl},
+		{"bingbot on a page", req("GET", "/", map[string]string{
+			"User-Agent": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+		}), ActivityCrawl},
 		{"low cloudflare bot score", req("GET", "/", map[string]string{"Cf-Bot-Score": "3"}), ActivityProbe},
 
 		// Pins: a live connection forbids sleep.
@@ -110,6 +121,43 @@ func TestWriteSyntheticHealth(t *testing.T) {
 	// tell the app itself never answered.
 	if w.Header().Get("X-Tunr-Sleeping") != "1" {
 		t.Error("missing X-Tunr-Sleeping header")
+	}
+	if w.Header().Get("X-Tunr-Answered-By") != "edge" {
+		t.Error("missing X-Tunr-Answered-By header")
+	}
+}
+
+// Only callers that read nothing but the status may get a synthetic "ok";
+// anything that could record the body as a page's content must not.
+func TestSynthesizeForProbe(t *testing.T) {
+	ahrefs := map[string]string{"User-Agent": "Mozilla/5.0 (compatible; AhrefsBot/7.0)"}
+	cases := []struct {
+		name string
+		req  *http.Request
+		want bool
+	}{
+		{"HEAD root", req("HEAD", "/", nil), true},
+		{"GET /healthz", req("GET", "/healthz", nil), true},
+		{"uptimerobot on a page", req("GET", "/pricing", map[string]string{"User-Agent": "UptimeRobot/2.0"}), true},
+		{"ahrefs on /health", req("GET", "/health", ahrefs), true},
+		{"ahrefs on a page", req("GET", "/pricing", ahrefs), false},
+		{"low bot score on a page", req("GET", "/pricing", map[string]string{"Cf-Bot-Score": "3"}), false},
+	}
+	for _, c := range cases {
+		if got := SynthesizeForProbe(c.req); got != c.want {
+			t.Errorf("%s: SynthesizeForProbe = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestWriteSleepingRetry(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeSleepingRetry(w)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Error("missing Retry-After")
 	}
 	if w.Header().Get("X-Tunr-Answered-By") != "edge" {
 		t.Error("missing X-Tunr-Answered-By header")

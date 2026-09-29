@@ -160,14 +160,29 @@ func (u *CloudUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// silently stops working (plan §1.2 / E6).
 	if class == ActivityProbe && u.SleepState() != SleepAwake {
 		u.Metrics.ObserveProbe()
-		writeSyntheticHealth(w, u.AppID)
+		// Only answer "ok" to callers that read nothing but the status; anyone
+		// who might record the body as the page gets told to come back later.
+		if SynthesizeForProbe(r) {
+			writeSyntheticHealth(w, u.AppID)
+		} else {
+			writeSleepingRetry(w)
+		}
 		return
 	}
 
-	// Probes never reset the idle clock, even when the app is already awake —
-	// otherwise a 30s monitor keeps a 45s idle threshold permanently out of reach.
-	if class != ActivityProbe {
+	// Probes and crawlers never reset the idle clock, even when the app is
+	// already awake — otherwise a 30s monitor keeps a 45s idle threshold
+	// permanently out of reach, and a crawler would do the same.
+	if class != ActivityProbe && class != ActivityCrawl {
 		u.touch()
+	}
+
+	// A crawler wakes the app without touching the clock, so the sweeper could
+	// see it as long idle and freeze it mid-request. Hold it for the request
+	// only; once released, the next sweep puts it straight back to sleep.
+	if class == ActivityCrawl {
+		u.pins.Add(1)
+		defer u.pins.Add(-1)
 	}
 
 	// A pin forbids sleep for as long as the connection is open. Held across the

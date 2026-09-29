@@ -491,7 +491,8 @@ the container, waking it if it's asleep.
 **Scale to zero.** Apps move `HOT → WARM → STOPPED` on an idle timer. WARM is a
 cgroup memory reclaim followed by a pause, which cuts real memory cost by ~55%
 while keeping wake latency around 150 ms. Health-check probes are answered at
-the edge so a monitored app can still fall asleep.
+the edge so a monitored app can still fall asleep; search crawlers get the real
+page but can't keep the app awake.
 
 **Observability.** Prometheus metrics at `/metrics`, K8s probes at `/healthz`
 and `/readyz` on the inspector port.
