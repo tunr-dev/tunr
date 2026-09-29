@@ -3,6 +3,17 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+- **cli:** `--json` output was interleaved with `INFO` lines on stdout, so
+  `tunr share/tcp/udp/tls --json | jq` failed. Progress lines now go to stderr
+  whenever `--json` is set.
+- **docs:** removed claims for features that aren't wired up — OAuth2/SAML SSO,
+  SOC2 audit logging and SSRF/private-IP validation exist only as unused code —
+  and corrected the feedback widget description (it sends a text note; there
+  are no visual pins, and the script is inline, not loaded from a CDN).
+
 ## v0.6.2 — 2026-09-29
 
 ### Security

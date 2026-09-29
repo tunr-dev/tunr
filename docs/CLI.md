@@ -36,7 +36,7 @@ Advanced pro-proxy flags designed for freelancers and agencies to deliver flawle
 
 * `--demo`: Enables read-only mode. Intercepts and blocks destructive `POST`, `PUT`, `PATCH`, and `DELETE` requests at the proxy layer. Returns realistic mock JSON responses such as `{"status": "demo_success"}` with a `200 OK` status code. The client can click every button — but "Delete Order" will never touch your database.
 * `--freeze`: Crash-Tolerance Mode. If your local server crashes or returns errors, the proxy continues serving the last successful `2xx` responses (HTML, CSS, images, JSON) from its in-memory cache (`X-Tunr-Freeze-Cache`). The client never sees a thing.
-* `--inject-widget`: Appends a transparent Feedback UI and remote debugging overlay to every served HTML document. Clients can drop pins on the screen to report issues, and all `window.onerror` console logs from the remote browser are streamed to your local CLI monitor in real time.
+* `--inject-widget`: Adds a 💬 Feedback button and a JavaScript error catcher to every served HTML document. A client's note arrives in your terminal with the page URL and screen size; uncaught errors and unhandled promise rejections from their browser are logged there too.
 * `--auto-login <string>`: Automatically injects an auth cookie or JWT `Authorization` header into every incoming request. Example: `--auto-login "Cookie: session=demo-user-1"`. When the client opens your link, they land directly in the authenticated dashboard — no login screen.
 
 #### Examples

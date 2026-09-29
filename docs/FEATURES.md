@@ -24,15 +24,10 @@ Here is a comprehensive list of Tunr's features:
 ## 💼 Vibecoder Client Demo Features
 Taking client presentations to the next level. Tunr proxy dynamically enhances your local app for safe, impressive client demos.
 
-- **Snapshot / Freeze Mode (`--freeze`):** The proxy caches successful successful responses. If your local server crashes mid-presentation, the proxy falls back to the cache so the client never notices an error.
+- **Snapshot / Freeze Mode (`--freeze`):** The proxy caches successful responses. If your local server crashes mid-presentation, the proxy falls back to the cache so the client never notices an error.
 - **Demo Mode (`--demo`):** A read-only proxy layer. Blocks unsafe mutating requests (`POST`, `PUT`, `DELETE`) and returns a mocked success JSON. Your clients can click "Submit Order" without actually messing up your local database!
-- **Feedback & Error Widget (`--inject-widget`):** Transparently injects a floating feedback UI and a JS error catcher into the HTML. Clients drop pins and notes on the UI, and JavaScript errors are caught and logged directly to your local terminal.
+- **Feedback & Error Widget (`--inject-widget`):** Injects a floating 💬 Feedback button and a JS error catcher into the HTML. Clients type a note; it arrives in your terminal with the page URL and screen size, and uncaught JavaScript errors are logged there too.
 - **Auto-Login (`--auto-login`):** Bypasses auth screens for clients by automatically injecting required session Cookies or Headers into the proxy stream. `tunr share --auto-login "Cookie: session=demo"`
-
-## 🔒 Enterprise & Security
-- **OAuth2 SSO:** Support for Google, GitHub, and custom SAML/Okta sign-ons for Enterprise teams.
-- **Strict Validation:** SSRF protection, private IP blocking, and TLS strict verification built-in.
-- **Audit Logging:** Every tunnel lifecycle event is tracked for SOC2 compliance.
 
 ## 🌐 Multi-Region Routing
 - **Today:** one EU relay serves all traffic. The `--region` flag is accepted as a hint for when more regions exist.

@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"os"
 	"testing"
+
+	"github.com/tunr-dev/tunr/internal/logger"
 )
 
 func TestVersionIsSet(t *testing.T) {
@@ -38,5 +42,24 @@ func TestRootHasSubcommands(t *testing.T) {
 		if !names[exp] {
 			t.Errorf("missing subcommand: %s", exp)
 		}
+	}
+}
+
+// --json output is meant to be piped into jq or a script, so progress lines must not
+// share stdout with it.
+func TestJSONFlagMovesInfoOffStdout(t *testing.T) {
+	var buf bytes.Buffer
+	logger.SetInfoOutput(&buf)
+	t.Cleanup(func() { logger.SetInfoOutput(os.Stdout) })
+
+	cmd := newTCPCmd()
+	if err := cmd.Flags().Set("json", "true"); err != nil {
+		t.Fatal(err)
+	}
+	rootCmd.PersistentPreRun(cmd, nil)
+	logger.Info("Starting TCP tunnel...")
+
+	if buf.Len() != 0 {
+		t.Fatalf("INFO still written to the stdout writer under --json: %q", buf.String())
 	}
 }

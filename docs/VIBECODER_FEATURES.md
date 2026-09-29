@@ -56,12 +56,12 @@ The traditional feedback loop — the client takes a screenshot, sends it over W
 1. Every time your server returns an HTML document (`text/html`), the proxy intercepts the response in memory ("response intercepting").
 2. If the HTML body is GZip or Deflate compressed, it is decoded to a raw byte array on the fly.
 3. The HTML content is scanned with a regex-backed parser to locate the closing `</body>` tag.
-4. A two-part remote JavaScript bundle, hosted on Tunr's CDN, is injected just before the closing tag. The modified HTML is then re-compressed (GZip) to match the original encoding and sent to the client.
-5. The client sees a subtle, floating feedback button. Clicking it opens an overlay where they can drop pins on the screen to mark exactly where the issue is and describe it in text (visual pinning).
+4. A small inline script (no external CDN) is injected just before the closing tag. The modified HTML is then re-compressed (GZip) to match the original encoding and sent to the client.
+5. The client sees a floating 💬 Feedback button. Clicking it opens a small dialog where they type what should change.
 6. In the background, the injected script silently captures all `window.onerror` events and unhandled promise rejections from the client's browser console.
-7. All feedback and error data is `POST`-ed to Tunr's internal `/__tunr/feedback` route — a virtual endpoint intercepted by the proxy that is invisible to your localhost application. The data appears instantly in your CLI monitor as color-coded log entries (yellow for feedback, blue for captured errors).
+7. Feedback is `POST`-ed to `/__tunr/feedback` and errors to `/__tunr/error` — virtual endpoints intercepted by the proxy that never reach your localhost application. Feedback appears in your terminal as an `INFO` entry (message, page URL, screen size), errors as a `WARN` entry. Visitor text is stripped of control characters and escape sequences before it is printed.
 
-This gives you pixel-precise bug reports and real-time JavaScript error telemetry without asking the client to install anything.
+This gives you written feedback and real-time JavaScript error reports without asking the client to install anything.
 
 ---
 

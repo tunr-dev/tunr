@@ -26,6 +26,10 @@ Docs: https://tunr.sh/docs`,
 		if verbose {
 			logger.SetLevel(logger.DEBUG)
 		}
+		// --json promises machine-readable stdout; progress lines go to stderr.
+		if f := cmd.Flags().Lookup("json"); f != nil && f.Value.String() == "true" {
+			logger.SetInfoOutput(os.Stderr)
+		}
 	},
 }
 
