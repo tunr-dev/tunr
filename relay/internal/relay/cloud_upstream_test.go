@@ -271,7 +271,9 @@ func sleepingUpstream(t *testing.T) (*CloudUpstream, *int32) {
 // clock, or crawling alone would keep the app up forever.
 func TestCloudUpstream_CrawlerGetsRealPageWithoutKeepingAppAwake(t *testing.T) {
 	up, wakes := sleepingUpstream(t)
+	up.touch()
 	before := up.LastSeen()
+	time.Sleep(5 * time.Millisecond)
 
 	req := httptest.NewRequest(http.MethodGet, "http://site.tunr.sh/blog/post", nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
@@ -323,5 +325,23 @@ func TestCloudUpstream_SleepingMonitorGetsSyntheticOK(t *testing.T) {
 	}
 	if atomic.LoadInt32(wakes) != 0 {
 		t.Fatal("a monitor woke the app")
+	}
+}
+
+// After a relay restart lastSeen is zero, and the sweeper skips apps that were
+// "never served". A crawler waking such an app must start the clock, or the app
+// stays awake forever (seen in production after a relay deploy).
+func TestCloudUpstream_CrawlerStartsClockOnUnseenApp(t *testing.T) {
+	up, _ := sleepingUpstream(t)
+	if !up.LastSeen().IsZero() {
+		t.Fatal("precondition: fresh upstream should have no lastSeen")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://site.tunr.sh/", nil)
+	req.Header.Set("User-Agent", "Googlebot/2.1 (+http://www.google.com/bot.html)")
+	up.ServeHTTP(httptest.NewRecorder(), req)
+
+	if up.LastSeen().IsZero() {
+		t.Fatal("crawler left lastSeen zero, so the sweeper would never sleep the app")
 	}
 }

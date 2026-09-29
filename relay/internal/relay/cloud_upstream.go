@@ -183,6 +183,10 @@ func (u *CloudUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if class == ActivityCrawl {
 		u.pins.Add(1)
 		defer u.pins.Add(-1)
+		// The sweeper skips apps with no lastSeen ("never served"), and every
+		// relay restart zeroes it. A crawler waking such an app would leave it
+		// up for good, so start the clock once — never move it forward.
+		u.touchIfUnseen()
 	}
 
 	// A pin forbids sleep for as long as the connection is open. Held across the
@@ -317,6 +321,15 @@ func (u *CloudUpstream) updateHost(newIP string) {
 		u.Target.Host = nh
 		logger.Info("cloud %s: endpoint → %s", u.AppID, nh)
 	}
+}
+
+// touchIfUnseen starts the idle clock only if nothing has started it yet.
+func (u *CloudUpstream) touchIfUnseen() {
+	u.lastSeenMu.Lock()
+	if u.lastSeen.IsZero() {
+		u.lastSeen = time.Now()
+	}
+	u.lastSeenMu.Unlock()
 }
 
 func (u *CloudUpstream) touch() {
