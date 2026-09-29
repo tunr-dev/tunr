@@ -35,27 +35,13 @@ Taking client presentations to the next level. Tunr proxy dynamically enhances y
 - **Audit Logging:** Every tunnel lifecycle event is tracked for SOC2 compliance.
 
 ## 🌐 Multi-Region Routing
-- **Region Selection:** Choose your preferred relay region via `--region` flag (`ams`, `sea`, `sin`).
-- **Latency Optimization:** Route traffic to the nearest edge server for your users.
-- **Cross-Protocol Support:** Works with HTTP, TCP, UDP, and TLS tunnels.
+- **Today:** one EU relay serves all traffic. The `--region` flag is accepted as a hint for when more regions exist.
 
-## 🔌 TCP Tunnels
-- **Raw TCP Forwarding:** Expose databases, SSH servers, Redis, or any TCP service.
-- **No HTTP Parsing:** The relay acts as a pure byte pipe — no HTTP layer overhead.
-- **IP Access Control:** Restrict TCP tunnel access via CIDR whitelisting.
-- **QR Code Sharing:** Generate scannable QR codes for easy mobile/device sharing.
-
-## 🎮 UDP Tunnels (New in v0.4.0)
-- **Raw UDP Forwarding:** Expose DNS servers, game servers, and real-time audio/video services.
-- **Fire-and-Forget Support:** Works with both request/response and one-way datagram patterns.
-- **Low Overhead:** UDP datagrams are forwarded with minimal latency through the WebSocket control channel.
-- **CLI:** `tunr udp --port 53 --region ams`
-
-## 🔐 TLS Tunnels — End-to-End Encryption (New in v0.4.0)
-- **Zero-Knowledge Mode:** The relay cannot read your traffic — TLS is passed through without termination.
-- **SNI-Based Routing:** Traffic is routed based on the Server Name Indication (SNI) field.
-- **Compliance Ready:** Perfect for HIPAA, PCI-DSS, and other zero-trust requirements.
-- **CLI:** `tunr tls --port 8443`
+## 🔌 Raw TCP / UDP / TLS Tunnels (experimental)
+- **Transport:** raw bytes are carried over a WebSocket at `wss://<subdomain>.tunr.sh/tunnel/tcp` (binary frames). The relay has no raw TCP/UDP port yet, so native clients (`psql`, `ssh`, game clients) can't connect directly.
+- **TLS:** `tunr tls` forwards a local TLS port over the same transport. It is **not** SNI passthrough; the relay terminates TLS for `*.tunr.sh`.
+- **No IP allowlist:** `--allow-ip` isn't enforced on raw tunnels and returns an error.
+- **CLI:** `tunr tcp --port 5432`, `tunr udp --port 53`, `tunr tls --port 8443`
 
 ## 🛡️ Tunnel Security
 - **Password Protection:** HTTP Basic Authentication with `--password` flag.

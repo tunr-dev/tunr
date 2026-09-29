@@ -164,51 +164,41 @@ tunr mcp
 
 ---
 
-## TCP Tunnels
+## Raw Tunnels (experimental)
 
-### `tunr tcp`
-Expose a raw TCP tunnel — no HTTP parsing. Perfect for databases (PostgreSQL, MySQL, Redis, MongoDB), SSH servers, game servers, or any TCP-based service.
+### `tunr tcp` · `tunr udp` · `tunr tls`
+Forward raw bytes from a local port through the relay.
+
+**Read this first.** The relay exposes a raw tunnel only as a WebSocket stream
+at `wss://<subdomain>.tunr.sh/tunnel/tcp?subdomain=<subdomain>` — binary frames
+carry the raw bytes. There is no raw TCP/UDP port on the relay yet, so native
+clients (`psql`, `ssh`, a game client) can't connect directly; you need a client
+that speaks that WebSocket. Opening the public URL in a browser shows an
+informational page with the endpoint.
+
+* `tunr udp` carries datagrams over the same stream.
+* `tunr tls` forwards a local TLS port over the same transport. It is **not**
+  SNI passthrough: the relay terminates TLS for `*.tunr.sh`, so a normal TLS
+  client reaches the relay, not your server.
 
 **Required Flags:**
-* `-p, --port <int>`: The local TCP port to forward (e.g. `5432`).
+* `-p, --port <int>`: The local port to forward (e.g. `5432`).
 
 **Optional Flags:**
-* `--qr`: Display a QR code for the public tunnel URL.
-* `--allow-ip <CIDR>`: Restrict tunnel access to specific IP ranges (comma-separated).
-* `--region <string>`: Preferred relay region (see Multi-Region below).
+* `--region <string>`: Relay region hint (see below).
 * `--json`: Output tunnel information as JSON.
-* `--no-open`: Don't auto-open the browser.
-
-#### Examples
-```bash
-# Expose PostgreSQL
-tunr tcp --port 5432
-
-# Expose SSH with QR code
-tunr tcp --port 22 --qr
-
-# Expose Redis with IP restriction
-tunr tcp --port 6379 --allow-ip 10.0.0.0/8
-
-# Expose MySQL in specific region
-tunr tcp --port 3306 --region ams
-```
-
-#### Architecture
-
-TCP tunnels forward raw bytes over the WebSocket control channel. The relay does NOT parse HTTP — it's a pure byte pipe between the public endpoint and your local service.
+* `--allow-ip`: not supported on raw tunnels yet — the relay can't enforce it,
+  so the command exits with an error instead of leaving the port open.
 
 ```
-Application ──TCP──> [tunr relay] ──WebSocket──> [tunr CLI] ──TCP──> localhost:PORT
+WebSocket client ──wss──> [tunr relay] ──WebSocket──> [tunr CLI] ──TCP/UDP──> localhost:PORT
 ```
-
-**Connection Instructions**: When you access a TCP tunnel's public URL in a browser, you'll see an informational HTML page explaining how to connect to the service.
 
 ---
 
 ## Multi-Region Routing
 
-Both `tunr share` and `tunr tcp` support the `--region` flag for multi-region relay selection.
+`tunr share` and the raw tunnel commands accept the `--region` flag for multi-region relay selection.
 
 **Available Regions:**
 

@@ -24,13 +24,11 @@ func newTCPCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "tcp",
 		Aliases: []string{"tcp-proxy"},
-		Short:   "Expose a local TCP port over the internet",
-		Long: `Create a raw TCP tunnel to expose databases, SSH servers, or any TCP service.
+		Short:   "Expose a local TCP port (experimental, WebSocket clients only)",
+		Long: `Forward raw TCP bytes from a local port through the relay.
 
-TCP tunnels forward raw bytes — no HTTP parsing on the relay side.`,
-		Example: `  tunr tcp --port 5432
-  tunr tcp --port 22 --qr
-  tunr tcp --port 6379 --allow-ip 1.2.3.0/24`,
+` + rawTunnelLimits,
+		Example: `  tunr tcp --port 5432`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(),
 				syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -38,6 +36,9 @@ TCP tunnels forward raw bytes — no HTTP parsing on the relay side.`,
 
 			if port == 0 {
 				return fmt.Errorf("port is required (use --port)")
+			}
+			if err := rejectRawAllowIP(allowedIPs); err != nil {
+				return err
 			}
 
 			cfg, err := config.Load()
@@ -88,7 +89,7 @@ TCP tunnels forward raw bytes — no HTTP parsing on the relay side.`,
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "Don't auto-open browser")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 	cmd.Flags().BoolVar(&qrCode, "qr", false, "Display QR code for the public URL")
-	cmd.Flags().StringSliceVar(&allowedIPs, "allow-ip", nil, "Whitelist IPs (CIDR, comma-separated)")
+	cmd.Flags().StringSliceVar(&allowedIPs, "allow-ip", nil, "Not supported for raw tunnels yet (returns an error)")
 	cmd.Flags().StringVar(&region, "region", "", "Relay region (e.g. ams, sea, sin)")
 
 	_ = cmd.MarkFlagRequired("port")
@@ -102,16 +103,10 @@ func printTCPInfo(t *tunnel.Tunnel, port int, opts tunnel.StartOptions) {
 	fmt.Printf("localhost:%d", port)
 	term.Dim.Print("  →  ")
 	term.Cyan.Println(t.PublicURL)
-	term.Yellow.Printf("  Protocol:   TCP\n")
+	term.Yellow.Println("  Protocol:   TCP")
 	fmt.Println()
 
-	if len(opts.AllowedIPs) > 0 {
-		term.Dim.Printf("  Allowed IPs:  %s\n", fmt.Sprintf("%v", opts.AllowedIPs))
-	}
-
-	fmt.Println()
-	term.Dim.Println("  Connect to your service with:")
-	term.Dim.Printf("  ssh user@%s -p 443\n", t.PublicURL)
+	printRawTunnelNote(t.PublicURL)
 	fmt.Println()
 	term.Dim.Println("  Press Ctrl+C to disconnect")
 	fmt.Println()

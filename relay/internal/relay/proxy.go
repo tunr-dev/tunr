@@ -269,9 +269,9 @@ func (p *Proxy) writeTCPInfo(w http.ResponseWriter, subdomain string, entry *Tun
   <div class="box">
     <h1>🔌 TCP Tunnel Active</h1>
     <p>Tunnel <code>%s.tunr.sh</code> is forwarding raw TCP traffic to localhost:%d.</p>
-    <p>Connect using a TCP client or the tunr CLI.</p>
+    <p>Raw tunnels are experimental and reachable only over WebSocket (binary frames carry the bytes) &mdash; native clients like psql or ssh can't connect directly yet.</p>
     <p>WebSocket endpoint: <code>wss://%s.tunr.sh/tunnel/tcp?subdomain=%s</code></p>
-    <p><a href="https://tunr.sh/docs/tcp" class="ws-link">TCP Tunnel Docs →</a></p>
+    <p><a href="https://tunr.sh/docs/#raw" class="ws-link">TCP Tunnel Docs →</a></p>
   </div>
 </body>
 </html>`, subdomain, subdomain, entry.LocalPort, subdomain, subdomain)

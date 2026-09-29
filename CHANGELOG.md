@@ -14,6 +14,17 @@ All notable changes to tunr are documented here. This project adheres to
   sent to these endpoints was ever executed.
 
 ### Fixed
+- **cli, docs:** `tunr tls` was documented as end-to-end, SNI-passthrough
+  encryption the relay couldn't read, and as "compliance ready". The relay has
+  never implemented that: `tls` is a raw tunnel like `tcp`, and the relay
+  terminates TLS for `*.tunr.sh`. The help text, command output, README and
+  docs now say so, and `tcp`/`udp`/`tls` are marked experimental — they are
+  reachable only through the relay's WebSocket endpoint, which the output now
+  prints (the old `ssh user@https://… -p 443` hint never worked).
+- **cli:** `--allow-ip` on `tcp`/`udp`/`tls` was accepted and silently ignored,
+  leaving the port open to everyone. It now exits with an error.
+- **relay:** the raw-tunnel info page no longer tells visitors to use a plain
+  TCP client, and its docs link no longer 404s.
 - **cli:** `go install …/cmd/tunr@vX` builds reported `tunr version dev`; they
   now report the module version.
 

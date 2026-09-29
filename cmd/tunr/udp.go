@@ -25,13 +25,12 @@ func newUDPCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "udp",
 		Aliases: []string{"udp-proxy"},
-		Short:   "Expose a local UDP port over the internet",
-		Long: `Create a UDP tunnel to expose DNS servers, game servers, or any UDP service.
+		Short:   "Expose a local UDP port (experimental, WebSocket clients only)",
+		Long: `Forward UDP datagrams from a local port through the relay, carried over
+the same stream as TCP tunnels.
 
-UDP tunnels forward raw datagrams — zero TCP/HTTP overhead.`,
-		Example: `  tunr udp --port 53
-  tunr udp --port 27015 --qr
-  tunr udp --port 53 --allow-ip 10.0.0.0/8 --region ams`,
+` + rawTunnelLimits,
+		Example: `  tunr udp --port 53`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(),
 				syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -39,6 +38,9 @@ UDP tunnels forward raw datagrams — zero TCP/HTTP overhead.`,
 
 			if port == 0 {
 				return fmt.Errorf("port is required (use --port)")
+			}
+			if err := rejectRawAllowIP(allowedIPs); err != nil {
+				return err
 			}
 
 			cfg, err := config.Load()
@@ -89,7 +91,7 @@ UDP tunnels forward raw datagrams — zero TCP/HTTP overhead.`,
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "Don't auto-open browser")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 	cmd.Flags().BoolVar(&qrCode, "qr", false, "Display QR code for the public URL")
-	cmd.Flags().StringSliceVar(&allowedIPs, "allow-ip", nil, "Whitelist IPs (CIDR, comma-separated)")
+	cmd.Flags().StringSliceVar(&allowedIPs, "allow-ip", nil, "Not supported for raw tunnels yet (returns an error)")
 	cmd.Flags().StringVar(&region, "region", "", "Relay region (e.g. ams, sea, sin)")
 
 	_ = cmd.MarkFlagRequired("port")
@@ -103,15 +105,10 @@ func printUDPInfo(t *tunnel.Tunnel, port int, opts tunnel.StartOptions) {
 	fmt.Printf("localhost:%d", port)
 	term.Dim.Print("  →  ")
 	term.Cyan.Println(t.PublicURL)
-	term.Yellow.Printf("  Protocol:   UDP\n")
+	term.Yellow.Println("  Protocol:   UDP")
 	fmt.Println()
 
-	if len(opts.AllowedIPs) > 0 {
-		term.Dim.Printf("  Allowed IPs:  %s\n", fmt.Sprintf("%v", opts.AllowedIPs))
-	}
-
-	fmt.Println()
-	term.Dim.Println("  Perfect for DNS, game servers, and real-time apps.")
+	printRawTunnelNote(t.PublicURL)
 	fmt.Println()
 	term.Dim.Println("  Press Ctrl+C to disconnect")
 	fmt.Println()

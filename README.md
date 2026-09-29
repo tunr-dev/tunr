@@ -195,8 +195,8 @@ tunr share --port 3000
 #  🚀 https://abc1x2y3.tunr.sh
 ```
 
-HTTP/HTTPS with WebSocket (HMR works), plus raw **TCP**, **UDP** and
-end-to-end-encrypted **TLS** tunnels — all multiplexed over one connection.
+HTTP/HTTPS with WebSocket (HMR works), plus experimental raw **TCP**, **UDP**
+and **TLS** tunnels — all multiplexed over one connection.
 Traffic is served from a single EU relay today; more regions are planned.
 
 <details>
@@ -259,24 +259,23 @@ tunr share -p 3000 --domain demo.client.com
 </details>
 
 <details>
-<summary><b>TCP / UDP / TLS</b> — databases, SSH, game servers, zero-knowledge passthrough</summary>
+<summary><b>TCP / UDP / TLS</b> — experimental raw tunnels</summary>
 
 <br/>
 
 ```bash
-# TCP — raw bytes, no HTTP parsing on the relay
-tunr tcp --port 5432                          # PostgreSQL
-tunr tcp --port 22 --qr                       # SSH, QR for mobile
-tunr tcp --port 6379 --allow-ip 10.0.0.0/8    # Redis, restricted
-tunr tcp --port 3306                          # MySQL
-
-# UDP — DNS, game servers, anything datagram
+tunr tcp --port 5432
 tunr udp --port 53
-tunr udp --port 27015                         # game server
-
-# TLS — end-to-end encrypted, SNI passthrough. The relay cannot read it.
-tunr tls --port 8443
+tunr tls --port 8443   # a local TLS port over the same raw transport
 ```
+
+**Experimental, and narrower than the names suggest.** The relay exposes a raw
+tunnel only as a WebSocket stream at `wss://<subdomain>.tunr.sh/tunnel/tcp`
+(binary frames carry the bytes). There is no raw TCP/UDP port on the relay yet,
+so `psql`, `ssh` or a game client can't connect directly — you need a client
+that speaks that WebSocket. `tunr tls` is **not** SNI passthrough: the relay
+terminates TLS for `*.tunr.sh`. `--allow-ip` isn't enforced on raw tunnels, so
+it returns an error rather than silently leaving the port open.
 
 </details>
 
@@ -351,7 +350,7 @@ as a `curl` command. Everything stays on your machine.
 | `tunr share -p PORT --proxy URL` | HTTP/SOCKS5 proxy |
 | `tunr share -p PORT --region ams` | Relay region hint (single EU relay today) |
 | `tunr share -p PORT --json` | JSON output for CI |
-| `tunr tcp -p PORT` / `tunr udp -p PORT` / `tunr tls -p PORT` | TCP / UDP / TLS tunnels |
+| `tunr tcp -p PORT` / `tunr udp -p PORT` / `tunr tls -p PORT` | Raw tunnels over WebSocket (experimental) |
 | `tunr up` / `tunr down` | Start/stop everything in `.tunr.json` |
 | `tunr start` / `tunr stop` / `tunr status` | Daemon mode |
 | `tunr service install\|status\|uninstall` | System service |
@@ -507,7 +506,7 @@ it with `--relay https://tunnel.yourcompany.com` or `TUNR_RELAY_URL`. See
 ## Security
 
 - Auth tokens live in the **OS keychain**, never in a dotfile
-- All relay traffic over **TLS 1.3**; `tunr tls` is end-to-end, the relay can't read it
+- All relay traffic over **TLS 1.3**. HTTP tunnels terminate TLS at the relay, like any hosted tunnel; self-host the relay (`--relay`) if that matters to you
 - Cloud apps run under **gVisor**, not bare containers
 - `.env` files are excluded from deploy uploads by default
 - The CLI ships no telemetry, no analytics, no phone-home
