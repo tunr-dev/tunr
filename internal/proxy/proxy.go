@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 	"github.com/tunr-dev/tunr/internal/logger"
@@ -422,6 +424,39 @@ func (p *LocalProxy) HealthCheck(ctx context.Context) error {
 
 // ─── Vibecoder Demo Endpoints ────────────────────────────────────────────────
 
+// These endpoints are reachable by anyone who has the public URL, and what they
+// send ends up printed in the developer's terminal. Cap the body and scrub every
+// field so a visitor can't spoof output or drive the terminal emulator with
+// escape sequences.
+const (
+	maxRemotePayload = 8 << 10
+	maxRemoteField   = 500 // runes
+)
+
+// cleanRemote makes visitor-supplied text safe to print: control characters
+// (C0 incl. ESC, DEL, C1 incl. CSI) and bidi overrides are dropped, newlines and
+// tabs become spaces, invalid UTF-8 is discarded, and the result is capped.
+func cleanRemote(s string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if n >= maxRemoteField {
+			b.WriteString("…")
+			break
+		}
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			r = ' '
+		case r == utf8.RuneError, unicode.IsControl(r),
+			r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069:
+			continue
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
+}
+
 func (p *LocalProxy) handleFeedback(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Message   string `json:"message"`
@@ -430,6 +465,7 @@ func (p *LocalProxy) handleFeedback(w http.ResponseWriter, r *http.Request) {
 		Viewport  string `json:"viewport"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxRemotePayload)
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
@@ -438,9 +474,9 @@ func (p *LocalProxy) handleFeedback(w http.ResponseWriter, r *http.Request) {
 	logger.Info("")
 	logger.Info("💬 NEW CLIENT FEEDBACK RECEIVED!")
 	logger.Info("   ---------------------------")
-	logger.Info("   Page    : %s", payload.URL)
-	logger.Info("   Message : %s", payload.Message)
-	logger.Info("   Screen  : %s", payload.Viewport)
+	logger.Info("   Page    : %s", cleanRemote(payload.URL))
+	logger.Info("   Message : %s", cleanRemote(payload.Message))
+	logger.Info("   Screen  : %s", cleanRemote(payload.Viewport))
 	logger.Info("   ---------------------------")
 	logger.Info("")
 
@@ -458,6 +494,7 @@ func (p *LocalProxy) handleError(w http.ResponseWriter, r *http.Request) {
 		URL     string `json:"url"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxRemotePayload)
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
@@ -466,11 +503,11 @@ func (p *LocalProxy) handleError(w http.ResponseWriter, r *http.Request) {
 	logger.Warn("")
 	logger.Warn("🛑 REMOTE JS ERROR CAUGHT!")
 	logger.Warn("   ---------------------------")
-	logger.Warn("   Type    : %s", payload.Type)
-	logger.Warn("   Error   : %s", payload.Message)
-	logger.Warn("   Page    : %s", payload.URL)
+	logger.Warn("   Type    : %s", cleanRemote(payload.Type))
+	logger.Warn("   Error   : %s", cleanRemote(payload.Message))
+	logger.Warn("   Page    : %s", cleanRemote(payload.URL))
 	if payload.Source != "" {
-		logger.Warn("   File    : %s:%d:%d", payload.Source, payload.Line, payload.Col)
+		logger.Warn("   File    : %s:%d:%d", cleanRemote(payload.Source), payload.Line, payload.Col)
 	}
 	logger.Warn("   ---------------------------")
 	logger.Warn("")
