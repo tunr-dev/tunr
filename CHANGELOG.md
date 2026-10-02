@@ -3,7 +3,37 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v0.7.0 — 2026-10-02
+
+### Security
+- **cli:** WebSocket connections skipped every tunnel access check. A tunnel
+  shared with `--password`, `--auth-token` or `--allow-ip` accepted WebSockets
+  from anyone, because the relay bridges them outside the HTTP middleware.
+  They now pass the same checks before the dev server is dialled.
+- **relay:** the client IP was read from `Fly-Client-IP` / `CF-Connecting-IP`
+  first, headers any visitor can send, so `--allow-ip` and the per-IP rate
+  limits (including magic-link e-mails) could be bypassed. Forwarding headers
+  are now trusted only from the relay's own reverse proxy, and the WebSocket
+  path stamps `X-Forwarded-For` the way the HTTP path does.
+- **relay:** dependencies bumped past vulnerabilities the relay calls: pgx
+  v5.9.2 (GO-2026-5004), golang-jwt v5.2.2 (GO-2025-3553), gorilla/websocket
+  v1.5.3 (GO-2026-6278), x/text v0.39.0 (GO-2026-5970).
+- **build:** binaries are built with Go 1.27 (were 1.22, which carried 30 known
+  standard-library vulnerabilities). `go install` needs Go 1.26+.
+
+### Added
+- **cli:** `--demo-allow` / `--demo-block` rules (`"[METHOD ]/path[*]"`, `WS` for
+  sockets) to let a read-only POST through or block a GET that writes; also
+  `demoAllow` / `demoBlock` in `.tunr.json`.
+
+### Changed
+- **cli:** `--demo` now also drops messages the visitor sends over WebSockets
+  (server pushes still arrive; dev-server HMR sockets are exempt), lets GraphQL
+  queries sent as POST through (mutations stay blocked), and echoes a JSON
+  request body back instead of a generic payload. Blocked GraphQL mutations get
+  `200 {"data": null}`.
+- **cli:** `"demo": true` on a tcp/udp/tls tunnel is now an error instead of
+  being silently ignored.
 
 ### Fixed
 - **relay:** a search crawler (Googlebot, Bingbot, YandexBot) visiting a real
