@@ -4,7 +4,7 @@ Relay is the server-side component that routes traffic for tunnels opened with `
 
 ## Requirements
 
-- Go 1.22+
+- Go 1.26+
 - Required env: `TUNR_JWT_SECRET` (32+ chars), `TUNR_DOMAIN=tunr.sh`, `PORT=8080`
 - Optional: `DATABASE_URL` (PostgreSQL; runs in-memory when unset)
 

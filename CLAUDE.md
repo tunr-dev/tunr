@@ -119,7 +119,7 @@ The wire protocol between CLI and relay is the typed message stream in `internal
 
 ## Conventions & Gotchas
 
-- **Go 1.22+**, `CGO_ENABLED=0` everywhere — the CLI must stay a single static binary.
+- **Go 1.26+** (CI and releases build with 1.27.x), `CGO_ENABLED=0` everywhere — the CLI must stay a single static binary.
 - **Linter config** (`.golangci.yml`) disables `revive`'s `exported` rule, silences `gosec` G107/G110/G306/G404, and excludes `_test.go` from `errcheck`/`gosec`/`noctx`/`bodyclose`. Don't churn code to satisfy rules that are deliberately off.
 - **Auth tokens** must go through `internal/auth` (OS keychain). Never log `Manager.authToken` or write tokens to files — the codebase has `SECURITY:` comments marking these spots.
 - **Versioning** — `cmd/tunr/main.go` injects `Version` into `internal/tunnel` via its `init()`. The `-ldflags "-X main.Version=..."` in the Makefile is how releases get their version string; both CLI and SDK package versions (`sdk/python/pyproject.toml`, `sdk/node/package.json`) currently track `v0.4.0`.

@@ -3,7 +3,7 @@
 # Final image ~15MB — güvenli, küçük, hızlı başlar.
 
 # ── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM golang:1.22-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 # git ve ca-certificates (HTTPS bağlantısı için)
 RUN apk add --no-cache git ca-certificates tzdata

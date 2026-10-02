@@ -16,7 +16,7 @@ One command — or one MCP call — and the thing Claude Code just wrote stops l
 [![Release](https://img.shields.io/github/v/release/tunr-dev/tunr?color=7c3aed)](https://github.com/tunr-dev/tunr/releases)
 [![CLI: Apache 2.0](https://img.shields.io/badge/CLI-Apache--2.0-7c3aed.svg)](LICENSE)
 [![Relay: PolyForm Shield](https://img.shields.io/badge/relay-PolyForm%20Shield-6b7280.svg)](relay/LICENSE)
-[![Go Version](https://img.shields.io/badge/go-1.22+-00add8)](go.mod)
+[![Go Version](https://img.shields.io/badge/go-1.26+-00add8)](go.mod)
 [![CI](https://github.com/tunr-dev/tunr/actions/workflows/ci.yml/badge.svg)](https://github.com/tunr-dev/tunr/actions/workflows/ci.yml)
 [![Stars](https://img.shields.io/github/stars/tunr-dev/tunr?style=flat&color=7c3aed)](https://github.com/tunr-dev/tunr/stargazers)
 

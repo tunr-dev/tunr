@@ -27,7 +27,9 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: "go.mod"
+          # Explicit, not go-version-file: go.mod's "go" line is the minimum,
+          # and the binaries ship whatever stdlib this toolchain has.
+          go-version: "1.27.x"
           cache: true
 
       - name: Verify & Test

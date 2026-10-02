@@ -21,7 +21,10 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          # golangci-lint v1.63 can't read Go 1.27 export data ("export data
+          # version 4 is greater than maximum supported version 2"). Lint on
+          # 1.26 until the move to golangci-lint v2; tests and builds use 1.27.
+          go-version: "1.26.x"
           cache: true
 
       - name: golangci-lint
@@ -47,7 +50,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.27.x"
           cache: true
 
       - name: Download dependencies
@@ -77,14 +80,19 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.27.x"
           cache: true
 
-      - name: govulncheck
+      # Blocking: a vulnerability our code actually calls fails the build.
+      # Fix by bumping the module (or the Go patch release), not by muting this.
+      - name: govulncheck (CLI)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
-        continue-on-error: true
+
+      - name: govulncheck (relay)
+        working-directory: relay
+        run: govulncheck ./...
 
       - name: go vet
         run: go vet ./...
@@ -100,7 +108,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.27.x"
           cache: true
 
       - name: Cross-platform build
