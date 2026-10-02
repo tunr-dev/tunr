@@ -106,8 +106,11 @@ func NewLocalProxy(port int, pathRoutes map[string]int) (*LocalProxy, error) {
 
 	rp := httputil.NewSingleHostReverseProxy(localURL)
 
-	originalDirector := rp.Director
-	rp.Director = func(req *http.Request) {
+	// Director is deprecated (Go 1.26) in favour of Rewrite, but Rewrite strips
+	// the relay's X-Forwarded-* headers and resets Host, which --allow-ip,
+	// --x-forwarded-for and the dev server rely on. Moving needs its own change.
+	originalDirector := rp.Director         //nolint:staticcheck // SA1019, see above
+	rp.Director = func(req *http.Request) { //nolint:staticcheck // SA1019, see above
 		originalDirector(req)
 
 		// Route to different local ports based on path prefix

@@ -1,72 +1,80 @@
-run:
-  timeout: 5m
-  go: "1.22"
-
+version: "2"
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gofmt
-    - revive
-    - gocritic
     - bodyclose
-
-linters-settings:
-  govet:
-    disable:
-      - fieldalignment
-      - unusedwrite
-      - shadow
-  errcheck:
-    exclude-functions:
-      - (io.Writer).Write
-      - (net/http.ResponseWriter).Write
-      - (*compress/gzip.Writer).Write
-      - io.Copy
-      - fmt.Fprintf
-      - fmt.Fprint
-      - fmt.Fprintln
-      - (encoding/json.Encoder).Encode
-      - (*encoding/json.Encoder).Encode
-  revive:
+    - gocritic
+    - revive
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Writer).Write
+        - (net/http.ResponseWriter).Write
+        - (*compress/gzip.Writer).Write
+        - io.Copy
+        - fmt.Fprintf
+        - fmt.Fprint
+        - fmt.Fprintln
+        - (encoding/json.Encoder).Encode
+        - (*encoding/json.Encoder).Encode
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+        - exitAfterDefer
+    govet:
+      disable:
+        - fieldalignment
+        - unusedwrite
+        - shadow
+    staticcheck:
+      # v1 ran staticcheck (SA) + gosimple (S) but not stylecheck (ST) or
+      # quickfix (QF); v2 folds all four into staticcheck. Keep v1's set.
+      checks:
+        - all
+        - -ST*
+        - -QF*
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: exported
-        disabled: true
-  gocritic:
-    disabled-checks:
-      - ifElseChain
-      - singleCaseSwitch
-      - exitAfterDefer
-
+      - linters:
+          - bodyclose
+          - errcheck
+          - gosec
+          - noctx
+        path: _test\.go
+      - linters:
+          - noctx
+        path: cmd/
+      - linters:
+          - errcheck
+        path: sdk/
+      - linters:
+          - gosec
+        text: G107|G110|G306|G404
+      - linters:
+          - staticcheck
+        text: SA1012
+      - linters:
+          - prealloc
+        text: Consider pre-allocating
+    paths:
+      - dist
 issues:
-  # dist/ holds release-like binaries (not Go source)
-  exclude-dirs:
-    - dist
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosec
-        - noctx
-        - bodyclose
-    - path: cmd/
-      linters:
-        - noctx
-    - path: sdk/
-      linters:
-        - errcheck
-    - linters:
-        - gosec
-      text: "G107|G110|G306|G404"
-    - linters:
-        - staticcheck
-      text: "SA1012"
-    - linters:
-        - prealloc
-      text: "Consider pre-allocating"
   max-issues-per-linter: 0
   max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - dist

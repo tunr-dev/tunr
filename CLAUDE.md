@@ -20,7 +20,7 @@ The `Makefile` is the canonical entry point for the CLI module:
 make build            # CGO_ENABLED=0 build of ./cmd/tunr → ./tunr
 make build-dist       # release-flag build under dist/, verifies --version
 make test             # go test -race -timeout 60s ./...
-make lint             # golangci-lint v1.63.0 via `go run`
+make lint             # golangci-lint v2.14.0 via `go run`
 make vet              # go vet ./...
 make security         # govulncheck ./...
 make check            # vet + lint + test + security (CI parity)
@@ -120,7 +120,7 @@ The wire protocol between CLI and relay is the typed message stream in `internal
 ## Conventions & Gotchas
 
 - **Go 1.26+** (CI and releases build with 1.27.x), `CGO_ENABLED=0` everywhere — the CLI must stay a single static binary.
-- **Linter config** (`.golangci.yml`) disables `revive`'s `exported` rule, silences `gosec` G107/G110/G306/G404, and excludes `_test.go` from `errcheck`/`gosec`/`noctx`/`bodyclose`. Don't churn code to satisfy rules that are deliberately off.
+- **Linter config** (`.golangci.yml`, golangci-lint v2 format, shared by both modules) disables `revive`'s `exported` rule, keeps staticcheck to v1's SA+S checks (no ST/QF), silences `gosec` G107/G110/G306/G404, and excludes `_test.go` from `errcheck`/`gosec`/`noctx`/`bodyclose`. Don't churn code to satisfy rules that are deliberately off.
 - **Auth tokens** must go through `internal/auth` (OS keychain). Never log `Manager.authToken` or write tokens to files — the codebase has `SECURITY:` comments marking these spots.
 - **Versioning** — `cmd/tunr/main.go` injects `Version` into `internal/tunnel` via its `init()`. The `-ldflags "-X main.Version=..."` in the Makefile is how releases get their version string; both CLI and SDK package versions (`sdk/python/pyproject.toml`, `sdk/node/package.json`) currently track `v0.4.0`.
 - **Some doc comments are in Turkish** (notably `relay/cmd/server/main.go` and the JSON schema). This is intentional — preserve the language when editing those files unless the user asks for a translation.

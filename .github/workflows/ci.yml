@@ -21,18 +21,15 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          # golangci-lint v1.63 can't read Go 1.27 export data ("export data
-          # version 4 is greater than maximum supported version 2"). Lint on
-          # 1.26 until the move to golangci-lint v2; tests and builds use 1.27.
-          go-version: "1.26.x"
+          go-version: "1.27.x"
           cache: true
 
       - name: golangci-lint
         run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.63.0
-          golangci-lint run --timeout=5m --out-format=colored-line-number ./...
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+          golangci-lint run --timeout=5m ./...
           if [ -d relay ] && [ -f relay/go.mod ]; then
-            cd relay && golangci-lint run --timeout=5m --out-format=colored-line-number ./...
+            cd relay && golangci-lint run --timeout=5m ./...
           fi
 
   test:
