@@ -104,33 +104,18 @@ func NewLocalProxy(port int, pathRoutes map[string]int) (*LocalProxy, error) {
 		return nil, fmt.Errorf("failed to parse local URL: %w", err)
 	}
 
-	rp := httputil.NewSingleHostReverseProxy(localURL)
-
-	// Director is deprecated (Go 1.26) in favour of Rewrite, but Rewrite strips
-	// the relay's X-Forwarded-* headers and resets Host, which --allow-ip,
-	// --x-forwarded-for and the dev server rely on. Moving needs its own change.
-	originalDirector := rp.Director         //nolint:staticcheck // SA1019, see above
-	rp.Director = func(req *http.Request) { //nolint:staticcheck // SA1019, see above
-		originalDirector(req)
-
-		// Route to different local ports based on path prefix
-		if len(pathRoutes) > 0 {
-			bestPrefix := ""
-			bestPort := 0
-			for prefix, targetPort := range pathRoutes {
-				if !strings.HasPrefix(req.URL.Path, prefix) {
-					continue
-				}
-				// Prefer the longest matching prefix so /api beats /
-				if len(prefix) > len(bestPrefix) {
-					bestPrefix = prefix
-					bestPort = targetPort
-				}
+	rp := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			target := localURL
+			// Route to different local ports based on path prefix
+			if port := routePort(pathRoutes, pr.In.URL.Path); port > 0 {
+				routed := *localURL
+				routed.Host = fmt.Sprintf("127.0.0.1:%d", port)
+				target = &routed
 			}
-			if bestPort > 0 {
-				req.URL.Host = fmt.Sprintf("127.0.0.1:%d", bestPort)
-			}
-		}
+			pr.SetURL(target)
+			keepDirectorSemantics(pr)
+		},
 	}
 
 	rp.Transport = &http.Transport{
@@ -180,22 +165,8 @@ func (p *LocalProxy) ResolvePortForPath(requestPath string) int {
 	if i := strings.Index(path, "?"); i >= 0 {
 		path = path[:i]
 	}
-	if len(p.PathRoutes) == 0 {
-		return p.Port
-	}
-	bestPrefix := ""
-	bestPort := 0
-	for prefix, targetPort := range p.PathRoutes {
-		if !strings.HasPrefix(path, prefix) {
-			continue
-		}
-		if len(prefix) > len(bestPrefix) {
-			bestPrefix = prefix
-			bestPort = targetPort
-		}
-	}
-	if bestPort > 0 {
-		return bestPort
+	if port := routePort(p.PathRoutes, path); port > 0 {
+		return port
 	}
 	return p.Port
 }
@@ -379,6 +350,56 @@ func (p *LocalProxy) demoPolicy() *DemoPolicy {
 // opened at path must be dropped because the tunnel is in demo mode.
 func (p *LocalProxy) DemoBlocksWSWrites(path string, subprotocols []string) bool {
 	return p.DemoMode && p.demoPolicy().BlocksWSWrites(path, subprotocols)
+}
+
+// routePort returns the port of the longest path-route prefix matching path,
+// or 0 when none matches.
+func routePort(pathRoutes map[string]int, path string) int {
+	bestPrefix := ""
+	bestPort := 0
+	for prefix, targetPort := range pathRoutes {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		// Prefer the longest matching prefix so /api beats /
+		if len(prefix) > len(bestPrefix) {
+			bestPrefix = prefix
+			bestPort = targetPort
+		}
+	}
+	return bestPort
+}
+
+// keepDirectorSemantics undoes what Rewrite does differently from the
+// Director this proxy used to have, so the dev server sees the same request:
+//   - Host stays the inbound Host (SetURL resets it to the target)
+//   - X-Forwarded-*/Forwarded from the relay pass through (Rewrite strips
+//     them; --allow-ip upstream logic and apps read them)
+//   - the peer address is appended to X-Forwarded-For, as Director mode did
+//   - query strings Go can't parse reach the app as sent (Rewrite drops the
+//     unparsable params; Director only did when a form had been parsed)
+func keepDirectorSemantics(pr *httputil.ProxyRequest) {
+	pr.Out.Host = pr.In.Host
+
+	for _, h := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+		if v, ok := pr.In.Header[h]; ok {
+			pr.Out.Header[h] = append([]string(nil), v...)
+		}
+	}
+	if clientIP, _, err := net.SplitHostPort(pr.In.RemoteAddr); err == nil {
+		prior, ok := pr.Out.Header["X-Forwarded-For"]
+		omit := ok && prior == nil // nil means "don't populate", as in net/http/httputil
+		if len(prior) > 0 {
+			clientIP = strings.Join(prior, ", ") + ", " + clientIP
+		}
+		if !omit {
+			pr.Out.Header.Set("X-Forwarded-For", clientIP)
+		}
+	}
+
+	if pr.In.Form == nil {
+		pr.Out.URL.RawQuery = pr.In.URL.RawQuery
+	}
 }
 
 // isWebSocketRequest sniffs the Upgrade + Connection headers.
