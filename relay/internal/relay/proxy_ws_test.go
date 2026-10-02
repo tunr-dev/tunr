@@ -150,6 +150,9 @@ func TestBrowserWebSocketOpenCarriesForwardedHost(t *testing.T) {
 	wsURL := strings.Replace(srv.URL, "http://", "ws://", 1) + "/_next/webpack-hmr"
 	client, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{
 		"Origin": []string{"https://app.tunr.sh"},
+		// What Caddy sets, followed by a value the browser tried to inject.
+		"X-Forwarded-For": []string{"203.0.113.7, 6.6.6.6"},
+		"X-Real-Ip":       []string{"6.6.6.6"},
 	})
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -170,6 +173,14 @@ func TestBrowserWebSocketOpenCarriesForwardedHost(t *testing.T) {
 		}
 		if got := open.HeadersV2["X-Forwarded-Proto"]; len(got) != 1 || got[0] != "https" {
 			t.Fatalf("forwarded proto mismatch: %#v", got)
+		}
+		// The CLI's --allow-ip reads X-Forwarded-For: it must carry the relay's
+		// verdict on the client IP, the same value the HTTP path sends.
+		if got := open.HeadersV2["X-Forwarded-For"]; len(got) != 1 || got[0] != "203.0.113.7" {
+			t.Fatalf("forwarded-for mismatch: %#v", got)
+		}
+		if got, ok := open.HeadersV2["X-Real-Ip"]; ok {
+			t.Fatalf("client-sent X-Real-IP must be dropped, got %#v", got)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("did not receive ws_open")

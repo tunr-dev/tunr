@@ -25,7 +25,7 @@ Here is a comprehensive list of Tunr's features:
 Taking client presentations to the next level. Tunr proxy dynamically enhances your local app for safe, impressive client demos.
 
 - **Snapshot / Freeze Mode (`--freeze`):** The proxy caches successful responses. If your local server crashes mid-presentation, the proxy falls back to the cache so the client never notices an error.
-- **Demo Mode (`--demo`):** A read-only proxy layer. Blocks unsafe mutating requests (`POST`, `PUT`, `DELETE`) and returns a mocked success JSON. Your clients can click "Submit Order" without actually messing up your local database!
+- **Demo Mode (`--demo`):** A read-only proxy layer. Blocks unsafe mutating requests (`POST`, `PUT`, `PATCH`, `DELETE`) and messages the visitor sends over WebSockets, and returns a mocked success JSON. GraphQL queries still go through; `--demo-allow` / `--demo-block` cover app-specific cases. Your clients can click "Submit Order" without actually messing up your local database!
 - **Feedback & Error Widget (`--inject-widget`):** Injects a floating 💬 Feedback button and a JS error catcher into the HTML. Clients type a note; it arrives in your terminal with the page URL and screen size, and uncaught JavaScript errors are logged there too.
 - **Auto-Login (`--auto-login`):** Bypasses auth screens for clients by automatically injecting required session Cookies or Headers into the proxy stream. `tunr share --auto-login "Cookie: session=demo"`
 

@@ -31,6 +31,7 @@ type LocalProxy struct {
 	// Vibecoder Demo Modes
 	Freeze       *FreezeCache
 	DemoMode     bool
+	Demo         *DemoPolicy // allow/block rules for DemoMode; nil = defaults
 	InjectWidget bool
 	AutoLogin    string // Cookie injection
 
@@ -281,7 +282,7 @@ func (p *LocalProxy) BuildMiddlewareChain() {
 
 	// Demo Mode (intercepts before hitting local server)
 	if p.DemoMode {
-		h = DemoMiddleware(h)
+		h = p.demoPolicy().Middleware(h)
 	}
 
 	// X-Forwarded-For (inject client IP)
@@ -317,6 +318,66 @@ func (p *LocalProxy) BuildMiddlewareChain() {
 	p.handler = h
 }
 
+// authGate runs the tunnel's access checks — allow-ip, auth-token, password —
+// with no upstream behind them. WebSockets never enter the HTTP middleware
+// chain, so this is how they get the same checks.
+func (p *LocalProxy) authGate() http.Handler {
+	var h http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if g, ok := w.(*authGateWriter); ok {
+			g.passed = true
+		}
+	})
+	if p.Password != "" {
+		h = BasicAuthMiddleware(p.Password, h)
+	}
+	if p.BearerToken != "" {
+		h = BearerTokenMiddleware(p.BearerToken, "", h)
+	}
+	if p.IPWhitelist != nil && !p.IPWhitelist.IsEmpty() {
+		h = p.IPWhitelist.Middleware(h)
+	}
+	return h
+}
+
+type authGateWriter struct {
+	http.ResponseWriter
+	passed bool
+}
+
+// authorize writes the rejection to w and returns false if r fails the
+// tunnel's access checks.
+func (p *LocalProxy) authorize(w http.ResponseWriter, r *http.Request) bool {
+	gw := &authGateWriter{ResponseWriter: w}
+	p.authGate().ServeHTTP(gw, r)
+	return gw.passed
+}
+
+// AuthorizeWS reports whether a WebSocket handshake passes the tunnel's
+// access checks. The relay bridges WebSockets outside the HTTP chain; without
+// this, --password, --auth-token and --allow-ip don't apply to them.
+func (p *LocalProxy) AuthorizeWS(r *http.Request) bool {
+	return p.authorize(discardResponseWriter{header: http.Header{}}, r)
+}
+
+type discardResponseWriter struct{ header http.Header }
+
+func (d discardResponseWriter) Header() http.Header         { return d.header }
+func (d discardResponseWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (d discardResponseWriter) WriteHeader(int)             {}
+
+func (p *LocalProxy) demoPolicy() *DemoPolicy {
+	if p.Demo != nil {
+		return p.Demo
+	}
+	return &DemoPolicy{}
+}
+
+// DemoBlocksWSWrites reports whether client→server messages on a WebSocket
+// opened at path must be dropped because the tunnel is in demo mode.
+func (p *LocalProxy) DemoBlocksWSWrites(path string, subprotocols []string) bool {
+	return p.DemoMode && p.demoPolicy().BlocksWSWrites(path, subprotocols)
+}
+
 // isWebSocketRequest sniffs the Upgrade + Connection headers.
 func isWebSocketRequest(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
@@ -326,6 +387,9 @@ func isWebSocketRequest(r *http.Request) bool {
 // handleWebSocket proxies WebSocket connections to the local server.
 // Critical for Vite HMR, Next.js fast refresh, and friends.
 func (p *LocalProxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if !p.authorize(w, r) {
+		return
+	}
 	localWsURL := *p.localURL
 	localWsURL.Scheme = "ws"
 	localWsURL.Path = r.URL.Path

@@ -59,7 +59,11 @@ func (p *Proxy) serveBrowserWebSocket(w http.ResponseWriter, r *http.Request, en
 		_ = browserConn.Close()
 	}()
 
+	// GÜVENLİK: HTTP yolundaki (proxy.go) gibi istemci IP'sini relay belirler;
+	// tarayıcının gönderdiği X-Forwarded-For / X-Real-IP CLI'daki --allow-ip'i atlatamasın.
 	headersV2 := cloneHeaders(r.Header)
+	delete(headersV2, "X-Real-Ip")
+	headersV2["X-Forwarded-For"] = []string{realIP(r)}
 	headersV2["X-Forwarded-Host"] = []string{r.Host}
 	headersV2["X-Forwarded-Proto"] = []string{"https"}
 

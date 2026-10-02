@@ -17,14 +17,16 @@ import (
 
 // TunnelDef describes a single tunnel in the multi-tunnel config.
 type TunnelDef struct {
-	Port      int    `json:"port"`
-	Protocol  string `json:"protocol,omitempty"`  // http, tcp, udp, tls
-	Subdomain string `json:"subdomain,omitempty"` // Pro
-	Domain    string `json:"domain,omitempty"`    // Pro
-	Password  string `json:"password,omitempty"`
-	Demo      bool   `json:"demo,omitempty"`
-	Freeze    bool   `json:"freeze,omitempty"`
-	Region    string `json:"region,omitempty"`
+	Port      int      `json:"port"`
+	Protocol  string   `json:"protocol,omitempty"`  // http, tcp, udp, tls
+	Subdomain string   `json:"subdomain,omitempty"` // Pro
+	Domain    string   `json:"domain,omitempty"`    // Pro
+	Password  string   `json:"password,omitempty"`
+	Demo      bool     `json:"demo,omitempty"`
+	DemoAllow []string `json:"demoAllow,omitempty"` // "[METHOD ]/path[*]"
+	DemoBlock []string `json:"demoBlock,omitempty"`
+	Freeze    bool     `json:"freeze,omitempty"`
+	Region    string   `json:"region,omitempty"`
 }
 
 // MultiTunnelConfig represents the tunnels section of .tunr.json.
@@ -107,6 +109,8 @@ Then run: tunr up`,
 						Domain:    d.Domain,
 						Password:  d.Password,
 						DemoMode:  d.Demo,
+						DemoAllow: d.DemoAllow,
+						DemoBlock: d.DemoBlock,
 						Freeze:    d.Freeze,
 						Region:    d.Region,
 						AuthToken: token,

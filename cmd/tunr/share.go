@@ -26,6 +26,8 @@ func newShareCmd() *cobra.Command {
 	var region string
 
 	var demoMode bool
+	var demoAllow []string
+	var demoBlock []string
 	var freeze bool
 	var injectWidget bool
 	var autoLogin string
@@ -53,7 +55,9 @@ func newShareCmd() *cobra.Command {
 		Long: `Share your local dev server to the internet in < 3 seconds.
 
 Vibecoder Demo Flags (Pro):
-  --demo            Block mutating requests (POST, PUT, DELETE)
+  --demo            Answer POST/PUT/PATCH/DELETE without reaching your app
+  --demo-allow      Let a request through in demo mode ("POST /api/search")
+  --demo-block      Block a request in demo mode, even a GET ("GET /logout")
   --freeze          Serve cached responses if localhost crashes
   --inject-widget   Inject feedback UI into HTML pages
   --auto-login      Auto-inject auth cookies for clients
@@ -72,10 +76,17 @@ Pinggy-Inspired Security & Debugging:
   tunr share --port 8080 --subdomain myapp
   tunr share --port 3000 --domain myapp.example.com
   tunr share -p 3000 --demo --freeze --inject-widget
+  tunr share -p 3000 --demo --demo-allow "POST /api/search" --demo-block "GET /logout"
   tunr share -p 3000 --password secret --ttl 30m`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if subdomain != "" && domain != "" {
 				return fmt.Errorf("cannot use --subdomain and --domain together")
+			}
+			if (len(demoAllow) > 0 || len(demoBlock) > 0) && !demoMode {
+				return fmt.Errorf("--demo-allow and --demo-block need --demo")
+			}
+			if _, err := proxy.ParseDemoRules(append(append([]string{}, demoAllow...), demoBlock...)); err != nil {
+				return err
 			}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(),
@@ -118,6 +129,8 @@ Pinggy-Inspired Security & Debugging:
 				HTTPS:         cfg.Tunnel.TLSVerify,
 				AuthToken:     token,
 				DemoMode:      demoMode,
+				DemoAllow:     demoAllow,
+				DemoBlock:     demoBlock,
 				Freeze:        freeze,
 				InjectWidget:  injectWidget,
 				AutoLogin:     autoLogin,
@@ -186,7 +199,9 @@ Pinggy-Inspired Security & Debugging:
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 	cmd.Flags().StringVar(&region, "region", "", "Relay region (e.g. ams, sea, sin)")
 
-	cmd.Flags().BoolVar(&demoMode, "demo", false, "Block mutating requests (read-only mode)")
+	cmd.Flags().BoolVar(&demoMode, "demo", false, "Read-only mode: answer POST/PUT/PATCH/DELETE without reaching your app")
+	cmd.Flags().StringArrayVar(&demoAllow, "demo-allow", nil, `Let matching requests through in demo mode: "[METHOD ]/path[*]", METHOD may be WS (repeatable)`)
+	cmd.Flags().StringArrayVar(&demoBlock, "demo-block", nil, `Block matching requests in demo mode, even GETs: "[METHOD ]/path[*]" (repeatable)`)
 	cmd.Flags().BoolVar(&freeze, "freeze", false, "Cache responses, serve on crash")
 	cmd.Flags().BoolVar(&injectWidget, "inject-widget", false, "Inject feedback widget into HTML")
 	cmd.Flags().StringVar(&autoLogin, "auto-login", "", "Auto-inject auth cookie/header")
@@ -253,7 +268,10 @@ func printShareInfo(t *tunnel.Tunnel, port int, opts tunnel.StartOptions) {
 		term.Dim.Println("  Original URL: enabled")
 	}
 	if opts.DemoMode {
-		term.Dim.Println("  Mode:         read-only (POST/PUT/DELETE blocked)")
+		term.Dim.Println("  Mode:         read-only (POST/PUT/PATCH/DELETE and WebSocket sends blocked)")
+		if n := len(opts.DemoAllow) + len(opts.DemoBlock); n > 0 {
+			term.Dim.Printf("  Demo Rules:   %d allow, %d block\n", len(opts.DemoAllow), len(opts.DemoBlock))
+		}
 	}
 	if opts.Freeze {
 		term.Dim.Println("  Freeze:       enabled (cache-on-crash)")

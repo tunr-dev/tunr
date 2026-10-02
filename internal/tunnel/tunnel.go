@@ -108,6 +108,10 @@ func (m *Manager) Start(ctx context.Context, port int, opts StartOptions) (*Tunn
 	}
 
 	// TCP / UDP / TLS tunnel: skip HTTP proxy, relay handles raw forwarding
+	if opts.DemoMode && (opts.Protocol == ProtocolTCP || opts.Protocol == ProtocolUDP || opts.Protocol == ProtocolTLS) {
+		m.Remove(id)
+		return nil, fmt.Errorf("demo mode only works on HTTP tunnels: a %s tunnel carries raw bytes tunr can't inspect", opts.Protocol)
+	}
 	if opts.Protocol == ProtocolTCP || opts.Protocol == ProtocolUDP || opts.Protocol == ProtocolTLS {
 		go func() {
 			if err := m.runTCPTunnel(tunnelCtx, t, opts); err != nil {
@@ -136,6 +140,19 @@ func (m *Manager) Start(ctx context.Context, port int, opts StartOptions) (*Tunn
 		}
 
 		localProxy.DemoMode = opts.DemoMode
+		if opts.DemoMode {
+			allow, err := proxy.ParseDemoRules(opts.DemoAllow)
+			if err != nil {
+				m.Remove(id)
+				return nil, err
+			}
+			block, err := proxy.ParseDemoRules(opts.DemoBlock)
+			if err != nil {
+				m.Remove(id)
+				return nil, err
+			}
+			localProxy.Demo = &proxy.DemoPolicy{Allow: allow, Block: block}
+		}
 		localProxy.InjectWidget = opts.InjectWidget
 		localProxy.AutoLogin = opts.AutoLogin
 		localProxy.Password = opts.Password
@@ -469,6 +486,8 @@ type StartOptions struct {
 	AuthToken string `json:"-"`
 
 	DemoMode     bool
+	DemoAllow    []string // "[METHOD ]/path[*]" rules let through in demo mode
+	DemoBlock    []string // rules blocked in demo mode, even GETs
 	Freeze       bool
 	InjectWidget bool
 	AutoLogin    string

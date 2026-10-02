@@ -14,11 +14,36 @@ When developers let a client interact with a project running on their local mach
 
 **How It Works**
 
+Everything happens in the CLI's local proxy. Nothing runs inside your app.
+
 1. An HTTP request enters Tunr's LocalProxy layer.
-2. The request method is inspected. If it is `POST`, `PUT`, `PATCH`, or `DELETE`:
-3. The proxy **drops the request** — it is never forwarded to the backend application on localhost (port 8080). This is a hard request drop at the proxy level.
-4. Instead, the proxy crafts a frontend-friendly mock JSON response — `{"status": "demo_success", "message": "Demo mode: Request mocked"}` — and returns it immediately with a `200 OK` HTTP status code.
-5. Your site continues to feel fully interactive. The client can click buttons, submit forms, and navigate freely — but absolutely nothing is written to your database.
+2. `GET`, `HEAD` and `OPTIONS` pass through. `POST`, `PUT`, `PATCH` and `DELETE` are **answered by the proxy and never forwarded** to your app.
+3. The fake answer is `201` for `POST` and `200` otherwise, with an `X-Tunr-Demo-Mode: blocked-mutation` header. If the request body was a JSON object, it is echoed back, because most create/update endpoints return the saved resource. Otherwise the body is `{"status": "demo_success", ...}`.
+4. GraphQL reads sent as `POST` pass through. tunr parses the document and only blocks it if it contains a `mutation` or `subscription`. A blocked mutation gets `200` with `{"data": null}`. Persisted queries (hash only, no text) can't be inspected, so they are blocked.
+5. WebSockets stay open and server→client messages flow, so live updates keep working. Messages the visitor sends are dropped. Dev-server HMR sockets (Vite, Next.js, webpack) are exempt.
+
+So a form that autosaves on every keystroke shows "saved" each time, your server sees none of it, and a reload shows the real, unchanged data.
+
+**Fine-tuning with rules**
+
+The defaults can't know your app. A `GET /logout` that writes, or a `POST /api/search` that only reads, needs a rule:
+
+```bash
+tunr share -p 3000 --demo \
+  --demo-allow "POST /api/search" \
+  --demo-allow "WS /live-query" \
+  --demo-block "GET /logout" \
+  --demo-block "/api/admin/*"
+```
+
+A rule is `[METHOD ]/path`. A trailing `*` matches a prefix, and leaving out the method matches any method. `WS` refers to messages the visitor sends over a WebSocket at that path. Block rules win over allow rules. In `.tunr.json` the same rules go in `"demoAllow"` / `"demoBlock"` arrays on a tunnel.
+
+**Limits**
+
+- Demo mode keeps a client from changing your data by clicking around. It is not a security boundary. If the shared app must not write under any circumstances, run it against a read-only database user.
+- Next.js server actions are `POST`s and get blocked, and the client can't parse the fake reply. Allow the read-only ones with `--demo-allow "POST /path"`.
+- Code that needs the server's reply (for example, a generated `id` to navigate to) gets the echoed body without it.
+- Demo mode only works on HTTP tunnels. `tcp`/`udp`/`tls` tunnels refuse it.
 
 The result: your client gets a realistic, hands-on experience, and your data stays pristine.
 

@@ -178,7 +178,7 @@ tunr share -p 3000 --demo --freeze --inject-widget --qr
 
 | Flag | What the client sees | What actually happens |
 |---|---|---|
-| `--demo` | Buttons work — "Order deleted ✓" | `POST`/`PUT`/`PATCH`/`DELETE` are answered by tunr with a `200` and never reach your app. Your database stays clean. |
+| `--demo` | Buttons work — "Order deleted ✓" | `POST`/`PUT`/`PATCH`/`DELETE` are answered by tunr with a fake success (JSON bodies are echoed back) and never reach your app. GraphQL queries still go through. Messages the visitor sends over WebSockets are dropped. Tune it with `--demo-allow` / `--demo-block` ([details](docs/VIBECODER_FEATURES.md#--demo-safe-read-only-mode)). |
 | `--freeze` | The page, as it was a second ago | Your dev server crashed or returned a 5xx; tunr serves the last good response (`X-Tunr-Freeze-Cache: HIT`) while you fix it. |
 | `--inject-widget` | A 💬 **Feedback** button on every page | Their message, page URL and screen size land in your terminal. No code changes — tunr injects it into the HTML. |
 | `--auto-login` | Already signed in to a demo account | tunr adds your session cookie (or `Bearer …` header) to every request: `--auto-login "session=demo-token"`. |

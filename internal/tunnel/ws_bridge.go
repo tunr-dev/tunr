@@ -18,10 +18,15 @@ import (
 type wsStreamHub struct {
 	mu    sync.Mutex
 	conns map[string]*websocket.Conn
+	// readOnly streams drop client→server data frames (demo mode).
+	readOnly map[string]bool
 }
 
 func newWSStreamHub() *wsStreamHub {
-	return &wsStreamHub{conns: make(map[string]*websocket.Conn)}
+	return &wsStreamHub{
+		conns:    make(map[string]*websocket.Conn),
+		readOnly: make(map[string]bool),
+	}
 }
 
 func (h *wsStreamHub) closeAll() {
@@ -33,19 +38,24 @@ func (h *wsStreamHub) closeAll() {
 			time.Now().Add(2*time.Second))
 		_ = c.Close()
 		delete(h.conns, id)
+		delete(h.readOnly, id)
 	}
 }
 
-func (h *wsStreamHub) set(streamID string, c *websocket.Conn) {
+func (h *wsStreamHub) set(streamID string, c *websocket.Conn, readOnly bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.conns[streamID] = c
+	if readOnly {
+		h.readOnly[streamID] = true
+	}
 }
 
 func (h *wsStreamHub) shutdownStream(streamID string, code int, reason string) {
 	h.mu.Lock()
 	c := h.conns[streamID]
 	delete(h.conns, streamID)
+	delete(h.readOnly, streamID)
 	h.mu.Unlock()
 	if c == nil {
 		return
@@ -59,9 +69,14 @@ func (h *wsStreamHub) shutdownStream(streamID string, code int, reason string) {
 func (h *wsStreamHub) writeFrame(streamID string, messageType int, payload []byte) error {
 	h.mu.Lock()
 	c := h.conns[streamID]
+	readOnly := h.readOnly[streamID]
 	h.mu.Unlock()
 	if c == nil {
 		return fmt.Errorf("no upstream ws for stream %s", streamID)
+	}
+	if readOnly && (messageType == websocket.TextMessage || messageType == websocket.BinaryMessage) {
+		// Demo mode: the visitor's message never reaches the app.
+		return nil
 	}
 	return c.WriteMessage(messageType, payload)
 }
@@ -175,6 +190,29 @@ func buildUpstreamWSHeaders(open *wsOpenPayload, targetPort int) http.Header {
 	return h
 }
 
+// handshakeRequest rebuilds the browser's upgrade request from ws_open so the
+// tunnel's access checks can run against it.
+func handshakeRequest(open *wsOpenPayload, reqPath string) *http.Request {
+	r, err := http.NewRequest(http.MethodGet, "http://tunnel"+reqPath, nil)
+	if err != nil {
+		// Unparseable path: an empty request fails every configured check.
+		r, _ = http.NewRequest(http.MethodGet, "http://tunnel/", nil)
+		return r
+	}
+	if len(open.HeadersV2) > 0 {
+		for k, vals := range open.HeadersV2 {
+			for _, v := range vals {
+				r.Header.Add(k, v)
+			}
+		}
+	} else {
+		for k, v := range open.Headers {
+			r.Header.Set(k, v)
+		}
+	}
+	return r
+}
+
 func sendWsCloseToRelay(rc *RelayConn, streamID string, code int, reason string) {
 	if streamID == "" {
 		return
@@ -203,17 +241,25 @@ func runCLIWebSocketBridge(ctx context.Context, rc *RelayConn, hub *wsStreamHub,
 		return
 	}
 
-	targetPort := lp.ResolvePortForPath(pathForRouteMatch(open.Path))
+	routePath := pathForRouteMatch(open.Path)
+	targetPort := lp.ResolvePortForPath(routePath)
 	reqPath := open.Path
 	if !strings.HasPrefix(reqPath, "/") {
 		reqPath = "/" + reqPath
 	}
 	wsURL := fmt.Sprintf("ws://127.0.0.1:%d%s", targetPort, reqPath)
 
+	if !lp.AuthorizeWS(handshakeRequest(&open, reqPath)) {
+		logger.Debug("ws_open %s rejected by tunnel access checks", routePath)
+		sendWsCloseToRelay(rc, open.StreamID, websocket.ClosePolicyViolation, "unauthorized")
+		return
+	}
+
 	hdr := buildUpstreamWSHeaders(&open, targetPort)
+	subprotocols := extractSecWebSocketProtocol(&open)
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 15 * time.Second,
-		Subprotocols:     extractSecWebSocketProtocol(&open),
+		Subprotocols:     subprotocols,
 	}
 
 	localConn, resp, err := dialer.Dial(wsURL, hdr)
@@ -226,7 +272,7 @@ func runCLIWebSocketBridge(ctx context.Context, rc *RelayConn, hub *wsStreamHub,
 		return
 	}
 
-	hub.set(open.StreamID, localConn)
+	hub.set(open.StreamID, localConn, lp.DemoBlocksWSWrites(routePath, subprotocols))
 	readDone := make(chan struct{})
 
 	go func() {
