@@ -114,7 +114,7 @@ func (rl *RateLimiter) evictExpiredLocked(now time.Time) {
 func RateLimitMiddleware(rl *RateLimiter, plan string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := realIP(r)
+			ip := ClientIP(r)
 			key := "ip:" + ip
 
 			if !rl.Allow(key, plan) {

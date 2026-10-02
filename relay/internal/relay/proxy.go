@@ -112,7 +112,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req.Headers.Del("X-Forwarded-Host")
 	req.Headers.Del("X-Real-IP")
 	req.Headers.Set("X-Forwarded-Host", r.Host)
-	req.Headers.Set("X-Forwarded-For", realIP(r))
+	req.Headers.Set("X-Forwarded-For", ClientIP(r))
 	req.Headers.Set("X-Forwarded-Proto", "https")
 	req.Headers.Set("X-Tunr-Tunnel-ID", entry.ID)
 
@@ -164,24 +164,6 @@ func extractSubdomain(host, domain string) string {
 		return ""
 	}
 	return strings.TrimSuffix(host, "."+domain)
-}
-
-// realIP — gerçek client IP alınır (Fly.io/Cloudflare header'ları dahil)
-// GÜVENLİK: Bu değer sadece log için — asla auth'ta kullanma
-func realIP(r *http.Request) string {
-	// Fly.io
-	if ip := r.Header.Get("Fly-Client-IP"); ip != "" {
-		return ip
-	}
-	// Cloudflare
-	if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
-		return ip
-	}
-	// Genel reverse proxy
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		return strings.Split(ip, ",")[0]
-	}
-	return strings.Split(r.RemoteAddr, ":")[0]
 }
 
 // serveBrowserTCP — browser'dan gelen TCP WebSocket bağlantısını CLI'a proxy'ler

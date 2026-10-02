@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -243,7 +241,7 @@ func handleMagicRequest(database *db.DB, _ *auth.JWTAuth, domain string, rl *rel
 
 		// GÜVENLİK: Auth endpoint'leri IP başına sıkı rate limit ister
 		// (token spam'i, kullanıcı enumeration ve e-posta flood önlenir).
-		if rl != nil && !rl.Allow("authmagic:"+clientIP(r), "anon") {
+		if rl != nil && !rl.Allow("authmagic:"+relay.ClientIP(r), "anon") {
 			w.Header().Set("Retry-After", "60")
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
@@ -442,22 +440,4 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
-}
-
-// clientIP — auth rate limiting için en iyi-çaba client IP tespiti.
-// Reverse proxy (Caddy/Cloudflare/Fly) header'larını dener, yoksa RemoteAddr.
-func clientIP(r *http.Request) string {
-	for _, h := range []string{"Fly-Client-IP", "CF-Connecting-IP", "X-Forwarded-For"} {
-		if v := r.Header.Get(h); v != "" {
-			if i := strings.IndexByte(v, ','); i >= 0 {
-				return strings.TrimSpace(v[:i])
-			}
-			return strings.TrimSpace(v)
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

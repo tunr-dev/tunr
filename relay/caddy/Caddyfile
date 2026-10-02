@@ -1,97 +1,76 @@
-# Caddyfile — tunr.sh reverse proxy + TLS otomasyonu
-# Caddy, Let's Encrypt TLS sertifikalarını otomatik alır ve yeniler.
-# Wildcard *.tunr.sh için DNS challenge gerektirir.
-#
-# Kullanım: caddy run --config Caddyfile
-#
-# GÜVENLİK:
-#   - HSTS header otomatik
-#   - HTTP → HTTPS otomatik redirect
-#   - TLS 1.2+ zorunlu (TLS 1.0/1.1 devre dışı)
-#   - OCSP stapling aktif
+# Production Caddyfile — mirrors /opt/tunr/caddy/Caddyfile on the prod box
+# (mounted by docker-compose.caddy.yml there). The image is caddy:2 built with
+# github.com/caddy-dns/cloudflare. Edit here, then copy it to the server and
+# run: docker exec tunr-caddy-1 caddy reload --config /etc/caddy/Caddyfile
 
-# Global ayarlar
 {
-    # Let's Encrypt için email
-    email admin@tunr.sh
+	email admin@tunr.sh
+	acme_dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 
-    # Staging ortamı için (gerçek sertifika almak yerine test):
-    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
-
-    # Log formatı
-    log {
-        format json
-        level  INFO
-    }
+	# Client IP: tunr.sh is proxied by Cloudflare, so for requests from a
+	# Cloudflare edge {client_ip} is CF-Connecting-IP. From anyone else that
+	# header is ignored and {client_ip} is the TCP peer. Ranges from
+	# https://www.cloudflare.com/ips (refresh if Cloudflare adds any).
+	servers {
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
+		trusted_proxies_strict
+	}
 }
 
-# Ana domain — landing page + API
+# Every hop to the relay: X-Forwarded-For is exactly the client IP Caddy
+# resolved, and client-supplied IP headers are dropped. The relay and the
+# CLI's --allow-ip trust X-Forwarded-For, so a browser must not be able to
+# set it, Fly-Client-IP, CF-Connecting-IP or X-Real-IP itself.
+(to_relay) {
+	reverse_proxy relay:8080 {
+		header_up X-Forwarded-For {client_ip}
+		header_up -X-Real-IP
+		header_up -Fly-Client-IP
+		header_up -CF-Connecting-IP
+		header_up -True-Client-IP
+	}
+}
+
+# Apex + www: static landing + relay API/auth/tunnel/webhook
 tunr.sh, www.tunr.sh {
-    # Statik landing page dosyaları
-    root * /var/www/tunr/landing
-    file_server
-
-    # API isteklerini relay'e proxy'le
-    handle /api/* {
-        reverse_proxy localhost:8080
-    }
-
-    # Tunnel bağlantısı
-    handle /tunnel/* {
-        # GÜVENLİK/DOĞRULUK: Caddy v2 WebSocket upgrade'lerini otomatik proxy'ler.
-        # `header_up Upgrade/Connection` EKLEME — handshake'i bozar
-        # ("'upgrade' token not found in 'Connection' header").
-        reverse_proxy localhost:8080
-    }
-
-    # Auth endpoints
-    handle /auth/* {
-        reverse_proxy localhost:8080
-    }
-
-    # Security headers
-    header {
-        # HSTS: 1 yıl, subdomain dahil, preload
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        X-Content-Type-Options    "nosniff"
-        X-Frame-Options           "DENY"
-        Referrer-Policy           "strict-origin-when-cross-origin"
-        # Content Security Policy — landing page için
-        Content-Security-Policy   "default-src 'self' https://fonts.googleapis.com https://cdn.paddle.com; script-src 'self' 'unsafe-inline' https://cdn.paddle.com https://app.vitrus.dev; connect-src 'self' https://app.vitrus.dev; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:"
-        # Server bilgisi gizle
-        -Server
-    }
+	encode gzip
+	handle /api/* {
+		import to_relay
+	}
+	handle /tunnel/* {
+		import to_relay
+	}
+	handle /auth/* {
+		import to_relay
+	}
+	handle /webhook/* {
+		import to_relay
+	}
+	handle {
+		root * /var/www/tunr/landing
+		file_server
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
 }
 
-# Wildcard subdomain — tunnel'lar için
-# Not: Bu için DNS challenge gerekir (HTTP challenge *.domain için çalışmaz)
-# Fly.io üzerinde zaten TLS handle ediliyor, Caddy sadece routing yapar
+# Wildcard tunnels — everything to relay (subdomain routing on Host). Caddy
+# handles WebSocket upgrades natively; don't add Upgrade/Connection header_up.
 *.tunr.sh {
-    tls {
-        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
-    }
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	import to_relay
+	header -Server
+}
 
-    # Tüm istekleri relay sunucusuna proxy'le
-    reverse_proxy localhost:8080 {
-        # Host header'ı koru (subdomain routing için şart)
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto https
-
-        # WebSocket: Caddy v2 upgrade'i otomatik halleder; manuel
-        # header_up Upgrade/Connection EKLENMEZ (handshake'i bozar).
-
-        # Tunnel response'lar yavaş olabilir — timeout'ı uzat
-        transport http {
-            dial_timeout 5s
-            response_header_timeout 60s
-        }
-    }
-
-    # Wildcard için minimal security headers (tunnel içeriği kontrol edilemez)
-    header {
-        X-Content-Type-Options "nosniff"
-        -Server
-    }
+# Dashboard (Next.js) — must precede the *.tunr.sh wildcard for app subdomain
+app.tunr.sh {
+	reverse_proxy dashboard:3000
+	header -Server
 }

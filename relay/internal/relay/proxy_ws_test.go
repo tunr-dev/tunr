@@ -150,8 +150,9 @@ func TestBrowserWebSocketOpenCarriesForwardedHost(t *testing.T) {
 	wsURL := strings.Replace(srv.URL, "http://", "ws://", 1) + "/_next/webpack-hmr"
 	client, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{
 		"Origin": []string{"https://app.tunr.sh"},
-		// What Caddy sets, followed by a value the browser tried to inject.
-		"X-Forwarded-For": []string{"203.0.113.7, 6.6.6.6"},
+		// A value the browser tried to inject, then what the proxy appended.
+		// The test server's peer is loopback, so it plays the trusted proxy.
+		"X-Forwarded-For": []string{"6.6.6.6, 203.0.113.7"},
 		"X-Real-Ip":       []string{"6.6.6.6"},
 	})
 	if err != nil {
