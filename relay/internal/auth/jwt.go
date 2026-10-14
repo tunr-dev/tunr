@@ -28,6 +28,11 @@ type Claims struct {
 	// GÜVENLİK: Plan değiştiğinde (Paddle webhook) yeni token issue edilmeli
 	// DB lookup olmadan middleware'de kontrol edilir → performans kazanımı
 	Plan string `json:"plan"`
+	// Typ is empty for human tokens and always set for any other token kind
+	// (agent tokens carry "agent"). Verify rejects a non-empty Typ, so a
+	// token minted for a machine can never pass as a human session even
+	// though both are signed with the same secret.
+	Typ string `json:"typ,omitempty"`
 }
 
 // JWTAuth — JWT oluşturucu/doğrulayıcı
@@ -100,6 +105,11 @@ func (j *JWTAuth) Verify(tokenStr string) (*Claims, error) {
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("token parse edilemedi")
+	}
+	// GÜVENLİK: insan token'larında typ yok. typ'li (ör. ajan) token insan
+	// uçlarında kabul edilmez.
+	if claims.Typ != "" {
+		return nil, fmt.Errorf("geçersiz token: %q token'ı bu uçta kullanılamaz", claims.Typ)
 	}
 
 	return claims, nil
