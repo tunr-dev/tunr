@@ -126,4 +126,40 @@ The wire protocol between CLI and relay is the typed message stream in `internal
 - **Some doc comments are in Turkish** (notably `relay/cmd/server/main.go` and the JSON schema). This is intentional — preserve the language when editing those files unless the user asks for a translation.
 - **Tests near the CLI exercise CLI flag parsing**; tests under `internal/proxy/` use a real loopback HTTP server. There's a mock relay at `scripts/e2e/mock_relay.go` for end-to-end shell scripts (`scripts/full_*.sh`).
 - **`docs/` holds only public, user/contributor-facing docs.** Operational runbooks, launch/marketing copy, billing and compliance notes live in `docs/internal/` (gitignored, local only). `scripts/` and `relay/migrations/` are tracked. `landing/` (proprietary landing + dashboard) and the production deploy script are ignored. Secrets live only in server-side `.env` files.
-- **License is PolyForm Shield 1.0.0** — contributions are accepted but the license forbids building a competing tunnel service. Keep this in mind when proposing scope changes.
+- **Licenses:** the CLI module (root `LICENSE`) is Apache-2.0; the relay (`relay/LICENSE`) is PolyForm Shield 1.0.0, which forbids building a competing service. Keep this in mind when proposing scope changes.
+
+## Agent Bridge (in progress, `bridge/main`)
+
+The product is adding an agent-to-customer-data bridge. Work happens in the
+`../tunr-bridge` worktree on branch `bridge/main`; `main` stays the shipping
+v0.7.x line. Decision record: `docs/adr/0001-agent-bridge.md`. Wire contract:
+`docs/protocol/bridge.md`. Task plan (local, gitignored):
+`docs/internal/bridge/AGENT_BRIDGE.md`.
+
+- New relay code lives in `relay/internal/bridge/`; new CLI code in `internal/bridge/`
+  (`connector/`, `connector/pgproxy/`, `access/`). Keep the module boundary.
+- Everything bridge-related on the relay is behind `TUNR_BRIDGE_ENABLED=1`. With the
+  flag off nothing is mounted and behavior is unchanged (`bridge_test.go` guards this).
+- Migrations are applied by `update.sh` re-running every `relay/migrations/*.sql`
+  on each deploy — the relay does not run them. Every statement must be re-runnable.
+- Audit goes to the existing `audit_log` table (plus `org_id`); there is no
+  `audit_events` table.
+- The grant sweeper runs in its own goroutine inside `relay/internal/bridge/`; never
+  add bridge work to the app idle sweeper.
+- Security invariants (roadmap §4) are non-negotiable: default deny, default read-only,
+  connector-side grant JWT verification (Ed25519, relay key pinned at install, no TOFU),
+  agents never see DB credentials, no inbound ports, short-lived tokens, everything
+  audited, customer kill ≤ 2s, every query filtered by org_id, no CLI telemetry.
+  Agent tokens carry `typ:"agent"`; human endpoints reject any token with a `typ`.
+- Do not claim more than the design delivers: connector verification does not protect
+  against a relay compromise (the signing key is on the relay), and the relay can read
+  stream bytes until end-to-end TLS ships.
+- Never add cgo dependencies (CLI is built with CGO_ENABLED=0). Use
+  `github.com/jackc/pgx/v5/pgproto3` for Postgres wire handling.
+- SQL classification in pgproxy is defense in depth; the read-only DB role is the real
+  guarantee. When in doubt, deny.
+- Bridge end-to-end test: `scripts/e2e/bridge/run.sh` (docker compose, separate
+  customer/vendor networks). Run it before opening a bridge PR.
+- Live bridge environment is a separate `relay-bridge` container on `bridge.tunr.sh`
+  with its own `tunr_bridge` database; the production relay never runs bridge code.
+- Task IDs (P0-T1 … P8-T5) map to branches `bridge/<task-id>-<slug>`.
