@@ -103,58 +103,98 @@ func accessError(w http.ResponseWriter, status int, code, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "message": msg})
 }
 
-// ServeAccess handles GET /bridge/access?resource=<customer>/<name>[&grant=grt_…].
-func (a *Access) ServeAccess(w http.ResponseWriter, r *http.Request) {
+// authz is the outcome of the pre-upgrade checks.
+type authz struct {
+	claims *auth.AgentClaims
+	res    *db.Resource
+	grant  *db.Grant
+}
+
+type authzErr struct {
+	status        int
+	code, message string
+}
+
+// authorize runs every check shared by /bridge/access and /bridge/access/check.
+func (a *Access) authorize(r *http.Request) (*authz, *authzErr) {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || tok == "" {
-		accessError(w, http.StatusUnauthorized, "auth_required", "agent token required")
-		return
+		return nil, &authzErr{http.StatusUnauthorized, "auth_required", "agent token required"}
 	}
 	claims, err := a.jwt.VerifyAgent(tok)
 	if err != nil {
-		accessError(w, http.StatusUnauthorized, "invalid_token", "invalid or expired agent token")
-		return
+		return nil, &authzErr{http.StatusUnauthorized, "invalid_token", "invalid or expired agent token"}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), dbTimeout)
 	defer cancel()
+	unavailable := func(what string, err error) *authzErr {
+		logger.Warn("bridge access: %s: %v", what, err)
+		return &authzErr{http.StatusServiceUnavailable, "unavailable", "try again"}
+	}
 	usable, err := a.db.AgentTokenUsable(ctx, claims.OrgID, claims.AgentID(), claims.TokenID())
 	if err != nil {
-		logger.Warn("bridge access: token check: %v", err)
-		accessError(w, http.StatusServiceUnavailable, "unavailable", "try again")
-		return
+		return nil, unavailable("token check", err)
 	}
 	if !usable {
-		accessError(w, http.StatusUnauthorized, "invalid_token", "agent token revoked or agent disabled")
-		return
+		return nil, &authzErr{http.StatusUnauthorized, "invalid_token", "agent token revoked or agent disabled"}
 	}
-
 	customer, name, ok := strings.Cut(r.URL.Query().Get("resource"), "/")
 	if !ok || !slugRe.MatchString(customer) || !slugRe.MatchString(name) {
-		accessError(w, http.StatusBadRequest, "bad_resource", `resource must be "<customer>/<name>", e.g. acme/erp-db`)
-		return
+		return nil, &authzErr{http.StatusBadRequest, "bad_resource", `resource must be "<customer>/<name>", e.g. acme/erp-db`}
 	}
 	res, err := a.db.ResolveVendorResource(ctx, claims.OrgID, customer, name)
 	if errors.Is(err, db.ErrNotFound) {
-		accessError(w, http.StatusNotFound, "unknown_resource", "no such resource, or the customer has not linked your org")
-		return
+		return nil, &authzErr{http.StatusNotFound, "unknown_resource", "no such resource, or the customer has not linked your org"}
 	} else if err != nil {
-		logger.Warn("bridge access: resolve: %v", err)
-		accessError(w, http.StatusServiceUnavailable, "unavailable", "try again")
-		return
+		return nil, unavailable("resolve", err)
 	}
 	grant, err := a.db.FindActiveGrant(ctx, claims.OrgID, claims.AgentID(), res.ID, r.URL.Query().Get("grant"))
 	if errors.Is(err, db.ErrNotFound) {
-		accessError(w, http.StatusForbidden, "no_grant", "no approved, unexpired grant for this agent and resource")
-		return
+		return nil, &authzErr{http.StatusForbidden, "no_grant", "no approved, unexpired grant for this agent and resource"}
 	} else if err != nil {
-		logger.Warn("bridge access: grant: %v", err)
-		accessError(w, http.StatusServiceUnavailable, "unavailable", "try again")
-		return
+		return nil, unavailable("grant", err)
 	}
 	if !a.hub.Online(res.SiteID) {
-		accessError(w, http.StatusServiceUnavailable, "site_offline", "the customer's connector is not connected")
+		return nil, &authzErr{http.StatusServiceUnavailable, "site_offline", "the customer's connector is not connected"}
+	}
+	return &authz{claims: claims, res: res, grant: grant}, nil
+}
+
+// AccessCheck is the /bridge/access/check answer.
+type AccessCheck struct {
+	Resource       string    `json:"resource"`
+	Kind           string    `json:"kind"`
+	GrantID        string    `json:"grant_id"`
+	Mode           string    `json:"mode"`
+	GrantExpiresAt time.Time `json:"grant_expires_at"`
+}
+
+// ServeCheck handles GET /bridge/access/check: the same checks as
+// /bridge/access, without opening a stream. Lets `tunr access` and MCP tools
+// fail fast with a clear reason.
+func (a *Access) ServeCheck(w http.ResponseWriter, r *http.Request) {
+	z, e := a.authorize(r)
+	if e != nil {
+		accessError(w, e.status, e.code, e.message)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(AccessCheck{
+		Resource: r.URL.Query().Get("resource"), Kind: z.res.Kind,
+		GrantID: z.grant.ID, Mode: z.grant.Mode, GrantExpiresAt: *z.grant.ExpiresAt,
+	})
+}
+
+// ServeAccess handles GET /bridge/access?resource=<customer>/<name>[&grant=grt_…].
+func (a *Access) ServeAccess(w http.ResponseWriter, r *http.Request) {
+	z, e := a.authorize(r)
+	if e != nil {
+		accessError(w, e.status, e.code, e.message)
+		return
+	}
+	claims, res, grant := z.claims, z.res, z.grant
+	ctx, cancel := context.WithTimeout(r.Context(), dbTimeout)
+	defer cancel()
 	if !a.reserve(claims.TokenID()) {
 		accessError(w, http.StatusTooManyRequests, "too_many_streams", "too many open streams for this token")
 		return

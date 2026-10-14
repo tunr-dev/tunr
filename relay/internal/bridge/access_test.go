@@ -73,6 +73,7 @@ func newAccessEnv(t *testing.T) *accessEnv {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /bridge/connect", hub.ServeConnect)
 	mux.HandleFunc("GET /bridge/access", e.access.ServeAccess)
+	mux.HandleFunc("GET /bridge/access/check", e.access.ServeCheck)
 	e.srv = httptest.NewServer(mux)
 	t.Cleanup(e.srv.Close)
 	return e
@@ -205,6 +206,21 @@ func TestAccessRefusals(t *testing.T) {
 	}
 
 	_, _ = e.connector(e.siteToken) // resource exists now
+	check := func() (int, string) {
+		req, _ := http.NewRequest("GET", e.srv.URL+"/bridge/access/check?resource=acme/echo", nil)
+		req.Header.Set("Authorization", "Bearer "+e.agentTok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var body struct{ Error, Mode string }
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body.Error + body.Mode
+	}
+	if st, code := check(); st != 403 || code != "no_grant" {
+		t.Errorf("check without grant: %d %s", st, code)
+	}
 	if _, st, code := e.dialAgent(e.agentTok, "acme/echo"); st != 403 || code != "no_grant" {
 		t.Errorf("no grant: %d %s", st, code)
 	}
@@ -215,9 +231,12 @@ func TestAccessRefusals(t *testing.T) {
 	if _, st, code := e.dialAgent(e.agentTok, "acme/echo"); st != 403 || code != "no_grant" {
 		t.Errorf("pending grant: %d %s", st, code)
 	}
+	e.approve("rw", time.Hour)
+	if st, mode := check(); st != 200 || mode != "rw" {
+		t.Errorf("check with grant: %d %s", st, mode)
+	}
 	// Revoked token.
 	_ = e.d.RevokeAgentToken(context.Background(), e.vend.ID, e.agent.ID, e.tokenID)
-	e.approve("rw", time.Hour)
 	if _, st, code := e.dialAgent(e.agentTok, "acme/echo"); st != 401 || code != "invalid_token" {
 		t.Errorf("revoked token: %d %s", st, code)
 	}

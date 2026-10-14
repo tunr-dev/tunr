@@ -130,6 +130,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/bridge/health", s.handleHealth)
 	mux.HandleFunc("GET /bridge/connect", s.hub.ServeConnect)
 	mux.HandleFunc("GET /bridge/access", s.access.ServeAccess)
+	mux.HandleFunc("GET /bridge/access/check", s.access.ServeCheck)
 	s.registerAPI(mux)
 }
 
