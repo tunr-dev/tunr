@@ -55,9 +55,15 @@ Build a two-sided bridge on top of the existing relay:
 
 ## Consequences
 
-- The CLI module gains a dependency on `github.com/jackc/pgx/v5/pgproto3`
-  (pure Go, no cgo). This deliberately relaxes the previous "the CLI does not
-  pull pgx" note for the wire-protocol package only.
+- The CLI module gains a dependency on pgx (pure Go, no cgo): `pgproto3`
+  for the wire protocol and `pgconn` to log in upstream (SCRAM, MD5, TLS)
+  before hijacking the connection. This deliberately relaxes the previous
+  "the CLI does not pull pgx" note. Cost: the CLI binary grows ~1.2 MB
+  (10.9 → 12.2 MB, darwin/arm64).
+- pgproxy does not forward cancel requests, and does not cancel upstream
+  when a row limit trips: PostgreSQL's cancel can't name a query, so a
+  cancel racing the end of one query kills the next. Over-limit results are
+  drained instead, bounded by statement_timeout (30s).
 - The connector lives in the CLI module, so it is Apache-2.0 like the rest of
   the CLI; relay-side bridge code is PolyForm Shield like the rest of the relay.
 - New relay migrations add `orgs`, `links`, `sites`, `resources`, `agents`,

@@ -44,6 +44,7 @@ type OpenedAccess struct {
 	LocalAddress   string    `json:"local_address"`
 	GrantID        string    `json:"grant_id"`
 	GrantExpiresAt time.Time `json:"grant_expires_at"`
+	DSN            string    `json:"dsn,omitempty"` // postgres: connection string for this port
 	Hint           string    `json:"hint,omitempty"`
 }
 

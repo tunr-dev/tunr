@@ -37,7 +37,7 @@ Agent Bridge. Needs an agent token (TUNR_AGENT_TOKEN, or --token-stdin) and an
 approved grant. The resource's real address never reaches this machine.`,
 		Example: `  export TUNR_AGENT_TOKEN=…
   tunr access acme/nas --port 14455
-  tunr access acme/erp-db --port 15432   # postgres needs the read-only proxy (coming with P5)`,
+  tunr access acme/erp-db --port 15432   # prints a read-only postgresql:// DSN`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			token := os.Getenv("TUNR_AGENT_TOKEN")
@@ -56,7 +56,7 @@ approved grant. The resource's real address never reaches this machine.`,
 				return err
 			}
 			cl := &access.Client{Relay: relay, Token: token, Resource: args[0], GrantID: grantID,
-				Logf: func(f string, a ...any) { logger.Info(f, a...) }}
+				ClientSecret: access.NewClientSecret(), Logf: func(f string, a ...any) { logger.Info(f, a...) }}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -81,7 +81,9 @@ approved grant. The resource's real address never reaches this machine.`,
 			term.Green.Println(fmt.Sprintf("  ● %s (%s, %s) → 127.0.0.1:%d", args[0], chk.Kind, chk.Mode, addr.Port))
 			term.Dim.Println(fmt.Sprintf("  grant %s valid until %s", chk.GrantID, chk.GrantExpiresAt.Local().Format(time.RFC1123)))
 			if chk.Kind == "postgres" {
-				term.Dim.Println(fmt.Sprintf("  psql \"postgres://agent:$TUNR_AGENT_TOKEN@127.0.0.1:%d/<db>\"", addr.Port))
+				// The DSN goes to stdout alone so scripts can capture it.
+				term.Dim.Println("  read-only; writes are refused and every query is logged for the data owner")
+				fmt.Println(access.DSN(addr.String(), cl.ClientSecret))
 			}
 			return cl.Serve(ctx, l)
 		},

@@ -6,6 +6,10 @@ package access
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,8 +63,12 @@ type Client struct {
 	Token    string // agent token; never logged
 	Resource string // "<customer>/<name>"
 	GrantID  string // optional
-	Logf     func(string, ...any)
-	HTTP     *http.Client
+	// ClientSecret is the password local Postgres clients must present (the
+	// DSN's password). Only its SHA-256 is sent; the connector's pgproxy
+	// checks it, so other local users can't use this port.
+	ClientSecret string
+	Logf         func(string, ...any)
+	HTTP         *http.Client
 }
 
 func (c *Client) logf(f string, a ...any) {
@@ -151,6 +159,10 @@ func (c *Client) Serve(ctx context.Context, l net.Listener) error {
 func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 	defer local.Close()
 	hdr := http.Header{"Authorization": {"Bearer " + c.Token}}
+	if c.ClientSecret != "" {
+		sum := sha256.Sum256([]byte(c.ClientSecret))
+		hdr.Set("X-Tunr-Client-Secret-Sha256", hex.EncodeToString(sum[:]))
+	}
 	d := websocket.Dialer{HandshakeTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment}
 	ws, resp, err := d.DialContext(ctx, c.endpoint("/bridge/access", true), hdr)
 	if resp != nil {
@@ -245,4 +257,16 @@ func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 	_ = ws.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
 	return nil
+}
+
+// NewClientSecret returns a random DSN password for local clients.
+func NewClientSecret() string {
+	b := make([]byte, 24)
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// DSN is the connection string for a postgres resource opened on addr.
+func DSN(addr, secret string) string {
+	return "postgresql://agent:" + secret + "@" + addr + "/db?sslmode=disable"
 }

@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/tunr-dev/tunr/internal/auth"
 	"github.com/tunr-dev/tunr/internal/bridge"
+	"github.com/tunr-dev/tunr/internal/bridge/connector/pgproxy"
 )
 
 // streams.go — the connector's stream table (P3-T2).
@@ -22,7 +26,9 @@ import (
 //   - resolves the resource ID to a name it announced and dials ONLY the
 //     target in its local config for that name,
 //   - refuses kinds it cannot enforce: raw tcp only for "rw" grants (TCP
-//     can't be made read-only), postgres only through pgproxy (P5).
+//     can't be made read-only); postgres only for "ro" grants and only
+//     through pgproxy — there is no code path that pipes raw bytes to a
+//     postgres resource.
 //
 // Close reasons sent to the relay never include target addresses.
 
@@ -35,11 +41,12 @@ const (
 
 // Manager implements Streams.
 type Manager struct {
-	Cfg  *Config
-	Pin  ed25519.PublicKey
-	Logf func(string, ...any)
-	Dial func(ctx context.Context, network, addr string) (net.Conn, error) // tests override
-	Now  func() time.Time
+	Cfg     *Config
+	Secrets auth.SecretStore // database credentials for postgres resources
+	Pin     ed25519.PublicKey
+	Logf    func(string, ...any)
+	Dial    func(ctx context.Context, network, addr string) (net.Conn, error) // tests override
+	Now     func() time.Time
 
 	mu      sync.Mutex
 	siteID  string
@@ -118,13 +125,19 @@ func (m *Manager) Open(ctx context.Context, o bridge.OpenData, send func(bridge.
 		m.Logf("refused stream %s to %s: raw TCP cannot be read-only; needs an rw grant", o.StreamID, res.Name)
 		refuse(send, o.StreamID, "mode_not_enforceable")
 		return
-	case res.Kind == "postgres":
-		// Until the read-only proxy exists, a postgres resource must never
-		// get a raw byte pipe — that would bypass every read-only layer.
-		m.Logf("refused stream %s to %s: postgres access needs the read-only proxy", o.StreamID, res.Name)
-		refuse(send, o.StreamID, "kind_unsupported")
+	case res.Kind == "postgres" && claims.Mode != "ro":
+		m.Logf("refused stream %s to %s: postgres is read-only through the bridge", o.StreamID, res.Name)
+		refuse(send, o.StreamID, "mode_not_allowed")
 		return
-	case res.Kind != "tcp":
+	case res.Kind == "postgres" && res.Credential == "":
+		m.Logf("refused stream %s to %s: no credential stored (tunr connect pg-role --resource %s)", o.StreamID, res.Name, res.Name)
+		refuse(send, o.StreamID, "no_credential")
+		return
+	case res.Kind == "postgres" && len(o.ClientSecretHash) != 64:
+		m.Logf("refused stream %s to %s: no client secret (old tunr access?)", o.StreamID, res.Name)
+		refuse(send, o.StreamID, "no_client_secret")
+		return
+	case res.Kind != "tcp" && res.Kind != "postgres":
 		refuse(send, o.StreamID, "kind_unsupported")
 		return
 	}
@@ -156,16 +169,82 @@ func (m *Manager) Open(ctx context.Context, o bridge.OpenData, send func(bridge.
 	m.streams[o.StreamID] = st
 	m.mu.Unlock()
 
-	m.Logf("stream %s → %s (grant %s, agent %s)", o.StreamID, res.Name, claims.GrantID, claims.Subject)
-	go m.run(sctx, st, res.Target)
+	m.Logf("stream %s → %s (grant %s, agent %s, %s)", o.StreamID, res.Name, claims.GrantID, claims.Subject, claims.Mode)
+	go m.run(sctx, st, res, claims, o.ClientSecretHash)
 }
 
-func (m *Manager) run(ctx context.Context, st *stream, target string) {
-	dctx, cancel := context.WithTimeout(ctx, dialTimeout)
-	conn, err := m.Dial(dctx, "tcp", target)
-	cancel()
+// open returns the connection a stream's bytes flow into: the target itself
+// for tcp, or one end of an in-memory pipe whose other end is a pgproxy
+// session for postgres.
+func (m *Manager) open(ctx context.Context, st *stream, res *Resource, claims *GrantClaims, clientHash string) (net.Conn, error) {
+	if res.Kind != "postgres" {
+		dctx, cancel := context.WithTimeout(ctx, dialTimeout)
+		defer cancel()
+		return m.Dial(dctx, "tcp", res.Target)
+	}
+	if m.Secrets == nil {
+		return nil, errors.New("no secret store")
+	}
+	raw, err := m.Secrets.Get(res.Credential)
 	if err != nil {
-		m.Logf("stream %s: dial failed: %v", st.id, err)
+		return nil, fmt.Errorf("credential %s: %w", res.Credential, err)
+	}
+	var cred struct{ User, Password string }
+	if err := json.Unmarshal([]byte(raw), &cred); err != nil || cred.User == "" {
+		return nil, fmt.Errorf("credential %s is not {user, password}", res.Credential)
+	}
+	agentSide, proxySide := net.Pipe()
+	cfg := pgproxy.Config{
+		Upstream: res.Target, Database: res.Database, User: cred.User, Password: cred.Password,
+		SSLMode: res.SSLMode, ClientSecretHash: clientHash, Limits: tighter(res.Limits, claims.Limits),
+		AppName: "tunr-bridge " + claims.Subject, Logf: m.Logf,
+		Audit: func(a pgproxy.Audit) {
+			st.send(bridge.NewMessage(bridge.MsgAudit, bridge.AuditData{
+				StreamID: st.id, Command: a.Command, Tables: a.Tables, RowCount: a.RowCount,
+				DurationMS: a.DurationMS, Blocked: a.Blocked, QueryText: a.QueryText,
+			}))
+		},
+	}
+	go func() {
+		if err := pgproxy.Serve(ctx, proxySide, cfg); err != nil {
+			m.Logf("stream %s: pgproxy: %v", st.id, err)
+		}
+	}()
+	return agentSide, nil
+}
+
+// tighter combines the local resource limits with the grant's: per field,
+// the smaller non-zero value wins.
+func tighter(local, grant *Limits) pgproxy.Limits {
+	var l, g Limits
+	if local != nil {
+		l = *local
+	}
+	if grant != nil {
+		g = *grant
+	}
+	pick := func(a, b int64) int64 {
+		switch {
+		case a == 0:
+			return b
+		case b == 0:
+			return a
+		case a < b:
+			return a
+		}
+		return b
+	}
+	return pgproxy.Limits{
+		MaxRows:  int(pick(int64(l.MaxRows), int64(g.MaxRows))),
+		MaxBytes: pick(l.MaxBytes, g.MaxBytes),
+		QPS:      int(pick(int64(l.QPS), int64(g.QPS))),
+	}
+}
+
+func (m *Manager) run(ctx context.Context, st *stream, res *Resource, claims *GrantClaims, clientHash string) {
+	conn, err := m.open(ctx, st, res, claims, clientHash)
+	if err != nil {
+		m.Logf("stream %s: open failed: %v", st.id, err)
 		m.finish(st, "dial_failed", true)
 		return
 	}

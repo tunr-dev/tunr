@@ -81,7 +81,7 @@ func (b *bridgeMCP) OpenAccess(ctx context.Context, resource string, port int) (
 	}
 	b.mu.Unlock()
 
-	cl := &access.Client{Relay: b.relay, Token: b.token, Resource: resource,
+	cl := &access.Client{Relay: b.relay, Token: b.token, Resource: resource, ClientSecret: access.NewClientSecret(),
 		Logf: func(f string, a ...any) { logger.Info(f, a...) }}
 	chk, err := cl.Check(ctx)
 	if err != nil {
@@ -101,6 +101,11 @@ func (b *bridgeMCP) OpenAccess(ctx context.Context, resource string, port int) (
 
 	info := mcp.OpenedAccess{Resource: resource, Kind: chk.Kind, Mode: chk.Mode, LocalAddress: l.Addr().String(),
 		GrantID: chk.GrantID, GrantExpiresAt: chk.GrantExpiresAt}
+	if chk.Kind == "postgres" {
+		info.DSN = access.DSN(info.LocalAddress, cl.ClientSecret)
+		info.Hint = "Use this DSN with psql, psycopg or pgx. Read-only: write statements fail with SQLSTATE 42501. " +
+			"Every query is summarised for the customer."
+	}
 	if chk.Kind == "tcp" {
 		info.Hint = "Connect your client to " + info.LocalAddress + "; bytes go to the customer's resource unchanged."
 	}

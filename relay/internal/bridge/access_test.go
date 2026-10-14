@@ -442,3 +442,80 @@ func TestEffectiveLimits(t *testing.T) {
 		t.Error("empty limits should be nil")
 	}
 }
+
+func TestAccessQuerySummariesPersisted(t *testing.T) {
+	e := newAccessEnv(t)
+	cc, conn := e.connector(e.siteToken)
+	e.approve("rw", time.Hour)
+	a, _, _ := e.dialAgent(e.agentTok, "acme/echo")
+	defer a.Close()
+	readAgent(t, a)
+	open := next(t, conn, MsgOpen)
+	var od OpenData
+	_ = json.Unmarshal(open.Data, &od)
+
+	send := func(ad AuditData) {
+		ad.StreamID = od.StreamID
+		_ = cc.WriteJSON(msg(MsgAudit, ad))
+	}
+	send(AuditData{Command: "SELECT", Tables: []string{"fatura"}, RowCount: 42, DurationMS: 3, QueryText: "select * from fatura"})
+	send(AuditData{Command: "DELETE", Tables: []string{"fatura"}, Blocked: true, QueryText: "delete from fatura"})
+
+	type row struct {
+		cmd, text string
+		rows      int
+		blocked   bool
+	}
+	read := func(want int) []row {
+		var out []row
+		for i := 0; i < 100; i++ {
+			out = nil
+			rs, err := e.d.ListSessionQueries(context.Background(), e.cust.ID, od.StreamID, true)
+			if err == nil {
+				for _, q := range rs {
+					r := row{cmd: q.Command, text: q.QueryText, blocked: q.Blocked}
+					if q.RowCount != nil {
+						r.rows = *q.RowCount
+					}
+					out = append(out, r)
+				}
+			}
+			if len(out) >= want {
+				return out
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return out
+	}
+	got := read(2)
+	if len(got) != 2 || got[0].cmd != "SELECT" || got[0].rows != 42 || got[1].cmd != "blocked:DELETE" || !got[1].blocked {
+		t.Fatalf("summaries = %+v", got)
+	}
+	if got[0].text != "" || got[1].text != "" {
+		t.Errorf("query text stored without the customer opting in: %+v", got)
+	}
+
+	// Opt in → text is kept.
+	_ = e.d.QueryRowForTest(context.Background(),
+		`UPDATE orgs SET settings = '{"log_query_text": true}' WHERE id = $1 RETURNING id`, e.cust.ID).Scan(new(string))
+	send(AuditData{Command: "SELECT", QueryText: "select 1"})
+	got = read(3)
+	if len(got) != 3 || got[2].text != "select 1" {
+		t.Errorf("opted-in text: %+v", got)
+	}
+
+	var blocked int
+	for i := 0; i < 50 && blocked < 2; i++ {
+		_ = e.d.QueryRowForTest(context.Background(),
+			`SELECT count(*) FROM audit_log WHERE action = 'bridge.query_blocked' AND detail->>'session_id' = $1`, od.StreamID).Scan(&blocked)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if blocked != 2 {
+		t.Errorf("query_blocked audit events = %d, want 2 (customer + vendor)", blocked)
+	}
+	var qc int
+	_ = e.d.QueryRowForTest(context.Background(), `SELECT query_count FROM access_sessions WHERE id = $1`, od.StreamID).Scan(&qc)
+	if qc != 3 {
+		t.Errorf("session query_count = %d", qc)
+	}
+}

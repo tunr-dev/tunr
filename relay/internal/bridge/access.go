@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,6 +54,8 @@ type AccessReady struct {
 	GrantExpiresAt time.Time `json:"grant_expires_at"`
 }
 
+var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 var agentUpgrader = websocket.Upgrader{
 	ReadBufferSize:  32 << 10,
 	WriteBufferSize: 32 << 10,
@@ -69,13 +72,21 @@ type Access struct {
 	mu       sync.Mutex
 	streams  map[string]*agentStream
 	perToken map[string]int
+
+	audits chan auditJob
+}
+
+type auditJob struct {
+	st *agentStream
+	a  AuditData
 }
 
 // NewAccess wires the access path and installs itself as the hub's sink.
 func NewAccess(d *db.DB, j *auth.JWTAuth, signer *auth.GrantSigner, hub *ConnectorHub) *Access {
 	a := &Access{db: d, jwt: j, signer: signer, hub: hub,
-		streams: map[string]*agentStream{}, perToken: map[string]int{}}
+		streams: map[string]*agentStream{}, perToken: map[string]int{}, audits: make(chan auditJob, 4096)}
 	hub.SetSink(a)
+	go a.auditWorker()
 	return a
 }
 
@@ -243,7 +254,12 @@ func (a *Access) ServeAccess(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 	}()
 
-	if err := a.hub.Send(res.SiteID, msg(MsgOpen, OpenData{StreamID: streamID, ResourceID: res.ID, GrantJWT: grantJWT})); err != nil {
+	clientHash := strings.ToLower(r.Header.Get("X-Tunr-Client-Secret-Sha256"))
+	if !hex64.MatchString(clientHash) {
+		clientHash = ""
+	}
+	if err := a.hub.Send(res.SiteID, msg(MsgOpen, OpenData{StreamID: streamID, ResourceID: res.ID, GrantJWT: grantJWT,
+		ClientSecretHash: clientHash})); err != nil {
 		st.close("site_offline", false)
 	}
 	a.auditBoth(st, audit.ActionBridgeSessionOpened, map[string]any{
@@ -401,7 +417,15 @@ func (a *Access) FromConnector(siteID string, m Message) {
 		}
 		st.close(reason, true)
 	case MsgAudit:
-		// Per-query summaries arrive with pgproxy (P5).
+		var ad AuditData
+		if json.Unmarshal(m.Data, &ad) != nil {
+			return
+		}
+		select {
+		case a.audits <- auditJob{st: st, a: ad}:
+		default:
+			logger.Warn("bridge: audit queue full, dropping a query summary for %s", st.id)
+		}
 	}
 }
 
@@ -495,4 +519,35 @@ func effectiveLimits(resource, grant json.RawMessage) *auth.GrantLimits {
 		return nil
 	}
 	return &out
+}
+
+// auditWorker persists query summaries off the connector's read loop.
+// Query text is stored only when the customer org turned log_query_text on;
+// blocked statements also land in both orgs' audit_log (without the text).
+func (a *Access) auditWorker() {
+	for j := range a.audits {
+		ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+		ad := j.a
+		text := ""
+		if ad.QueryText != "" && a.db.OrgLogsQueryText(ctx, j.st.custOrg) {
+			text = ad.QueryText
+		}
+		if len(ad.Tables) > 50 {
+			ad.Tables = ad.Tables[:50]
+		}
+		if err := a.db.InsertAccessQuery(ctx, db.QuerySummary{SessionID: j.st.id, Command: truncate(ad.Command, 64),
+			Tables: ad.Tables, RowCount: ad.RowCount, DurationMS: ad.DurationMS, Blocked: ad.Blocked, QueryText: text}); err != nil {
+			logger.Warn("bridge: store query summary: %v", err)
+		}
+		if ad.Blocked {
+			detail := map[string]any{"session_id": j.st.id, "grant_id": j.st.grantID, "agent_id": j.st.agentID,
+				"command": ad.Command, "tables": ad.Tables}
+			for _, org := range []string{j.st.custOrg, j.st.vendorOrg} {
+				if err := a.db.AuditOrg(ctx, org, "", audit.ActionBridgeQueryBlocked, detail); err != nil {
+					logger.Warn("bridge audit: %v", err)
+				}
+			}
+		}
+		cancel()
+	}
 }

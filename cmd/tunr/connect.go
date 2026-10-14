@@ -164,6 +164,7 @@ func connectRun(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
+	streams.Secrets = cfg.Secrets(path)
 	cl := &connector.Client{
 		Cfg: cfg, Token: token, Version: tunnel.Version, KillPath: connector.KillPath(path),
 		Streams: streams, Logf: logf,

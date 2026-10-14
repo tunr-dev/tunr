@@ -48,6 +48,7 @@ type Resource struct {
 	Target     string  `json:"target"`               // host:port, never sent to the relay
 	Database   string  `json:"database,omitempty"`   // postgres
 	Credential string  `json:"credential,omitempty"` // secret-store name holding {"user","password"}
+	SSLMode    string  `json:"sslmode,omitempty"`    // postgres upstream sslmode (default "prefer")
 	Limits     *Limits `json:"limits,omitempty"`
 }
 
@@ -147,6 +148,11 @@ func (c *Config) Validate() error {
 		}
 		if r.Kind == "postgres" && r.Database == "" {
 			return fmt.Errorf("resource %s: postgres needs a database", r.Name)
+		}
+		switch r.SSLMode {
+		case "", "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+		default:
+			return fmt.Errorf("resource %s: invalid sslmode %q", r.Name, r.SSLMode)
 		}
 	}
 	if len(c.Resources) > 100 {

@@ -217,7 +217,8 @@ func TestStreamRefusals(t *testing.T) {
 		claims                        map[string]any
 	}{
 		{"tcp with ro grant", "acs_a", "res_echo", "mode_not_enforceable", baseClaims("acs_a", "res_echo", "ro")},
-		{"postgres before pgproxy", "acs_b", "res_pg", "kind_unsupported", baseClaims("acs_b", "res_pg", "ro")},
+		{"postgres rw", "acs_b", "res_pg", "mode_not_allowed", baseClaims("acs_b", "res_pg", "rw")},
+		{"postgres without credential", "acs_b2", "res_pg", "no_credential", baseClaims("acs_b2", "res_pg", "ro")},
 		{"jwt for another stream", "acs_c", "res_echo", "invalid_grant", baseClaims("acs_other", "res_echo", "rw")},
 		{"jwt for another resource", "acs_d", "res_echo", "invalid_grant", baseClaims("acs_d", "res_pg", "rw")},
 		{"resource not served", "acs_e", "res_unknown", "unknown_resource", baseClaims("acs_e", "res_unknown", "rw")},

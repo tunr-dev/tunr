@@ -444,3 +444,30 @@ func (db *DB) ListWebhooks(ctx context.Context, orgID string) ([]Webhook, error)
 func (db *DB) DeleteWebhook(ctx context.Context, orgID, id string) error {
 	return affected(db.pool.Exec(ctx, `DELETE FROM bridge_webhooks WHERE id = $1 AND org_id = $2`, id, orgID))
 }
+
+// QuerySummary is one per-query record from a connector's pgproxy.
+type QuerySummary struct {
+	SessionID  string
+	Command    string
+	Tables     []string
+	RowCount   int
+	DurationMS int
+	Blocked    bool
+	QueryText  string // stored only when the caller decided the customer opted in
+}
+
+// InsertAccessQuery stores a summary and bumps the session's query count.
+func (db *DB) InsertAccessQuery(ctx context.Context, q QuerySummary) error {
+	cmd := q.Command
+	if q.Blocked {
+		cmd = "blocked:" + q.Command
+	}
+	_, err := db.pool.Exec(ctx, `
+		WITH ins AS (
+		  INSERT INTO access_queries (session_id, command, tables, row_count, duration_ms, blocked, query_text)
+		  VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
+		  RETURNING session_id)
+		UPDATE access_sessions SET query_count = query_count + 1 WHERE id IN (SELECT session_id FROM ins)`,
+		q.SessionID, cmd, q.Tables, q.RowCount, q.DurationMS, q.Blocked, q.QueryText)
+	return err
+}

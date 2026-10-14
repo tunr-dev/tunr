@@ -58,6 +58,10 @@ type OpenData struct {
 	StreamID   string `json:"stream_id"`
 	ResourceID string `json:"resource_id"`
 	GrantJWT   string `json:"grant_jwt"`
+	// ClientSecretHash is the hex SHA-256 of the per-process secret in the
+	// agent's DSN (`tunr access`); pgproxy accepts only that password. Only
+	// the hash crosses the relay.
+	ClientSecretHash string `json:"client_secret_sha256,omitempty"`
 }
 
 // DataPayload carries stream bytes.
