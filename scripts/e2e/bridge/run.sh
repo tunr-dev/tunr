@@ -72,7 +72,7 @@ for _ in $(seq 30); do
 done
 [[ $(api "$CJ" GET /orgs/acme/sites | jq -r '.sites[0].status') == online ]] || fail "site never came online"
 RES=$(api "$CJ" GET /orgs/acme/resources | jq -r '[.resources[].name] | sort | join(",")')
-[[ $RES == nas,pg-raw ]] || fail "resources = $RES"
+[[ $RES == erp-db,nas ]] || fail "resources = $RES"
 pass "site online; resources announced: $RES"
 DUMP=$($DC exec -T relay-db pg_dump -U tunr tunr)
 grep -qE 'customer-echo|customer-pg|7777' <<<"$DUMP" && fail "a target address reached the relay database"
@@ -89,7 +89,7 @@ grant() { # mode → approves a grant directly (approval API arrives in P4)
                            requested_ttl_secs, approved_at, expires_at)
        SELECT 'grt_e2e_' || substr(md5(random()::text), 1, 10), a.id, r.id, a.org_id, r.org_id, '$1',
               'approved', 3600, now(), now() + interval '1 hour'
-       FROM agents a, resources r WHERE a.id='$AGENT_ID' AND r.name IN ('nas','pg-raw')" >/dev/null
+       FROM agents a, resources r WHERE a.id='$AGENT_ID' AND r.name = 'nas'" >/dev/null
 }
 
 step "5. ro grant on a raw TCP resource → connector refuses (TCP can't be read-only)"
@@ -118,13 +118,6 @@ OUT=$(agent 'tunr access acme/nas --port 14455 >/dev/null 2>&1 & sleep 1;
              printf "select 1" | nc -w 2 127.0.0.1 14455; kill %1' || true)
 [[ $OUT == "SELECT 1"* ]] || fail "echo through bridge = '$OUT'"
 pass "tcp echo round trip: '$OUT'"
-PGID=$(agent 'tunr access request acme/pg-raw --ttl 30m --reason "Count October invoices"' | grep -o 'grt_[0-9a-f]*' | head -1)
-human "$CJ" "tunr grants approve $PGID --org acme" >/dev/null; human "$C2J" "tunr grants approve $PGID --org acme" >/dev/null
-N=$(agent 'tunr access acme/pg-raw --port 15432 >/dev/null 2>&1 & sleep 1;
-           PGPASSWORD=owner-password psql -h 127.0.0.1 -p 15432 -U postgres -d logo -tAc "select count(*) from fatura";
-           kill %1' || true)
-[[ $N == 42 ]] || fail "select count(*) from fatura through bridge = '$N'"
-pass "psql through the bridge: 42 invoices (raw tcp; read-only postgres arrives in P5)"
 
 step "6b. Revoke cuts an open connection (≤ 2 s)"
 agentd 'tunr access acme/nas --port 14456 >/tmp/rv.log 2>&1'
@@ -148,15 +141,54 @@ api "$CJ" POST /orgs/acme/sites/$(api "$CJ" GET /orgs/acme/sites | jq -r '.sites
 [[ $(api "$CJ" GET "/orgs/acme/grants?status=approved" | jq '.grants | length') == 0 ]] || fail "approved grants survived kill"
 pass "kill revoked every approved grant on the site"
 
-step "7. Network isolation"
+step "7. Read-only Postgres: the agent never sees the DB password"
+api "$CJ" PATCH /orgs/acme/resources/$(api "$CJ" GET /orgs/acme/resources | jq -r '.resources[] | select(.name=="erp-db") | .id') \
+  '{"description":"Logo ERP (read replica)","limits":{"max_rows":20}}' >/dev/null
+PG=$(agent 'tunr access request acme/erp-db --ttl 30m --reason "Reconcile October invoices"' | grep -o 'grt_[0-9a-f]*' | head -1)
+human "$CJ" "tunr grants approve $PG --org acme" | grep -q approved || fail "ro grant needs one approver"
+agentd 'tunr access acme/erp-db --port 15432 > /tmp/dsn.txt 2>/tmp/pg.log'
+for _ in $(seq 30); do agent 'grep -q postgresql:// /tmp/dsn.txt' && break; sleep 0.3; done
+DSN=$(agent 'grep postgresql:// /tmp/dsn.txt')
+[[ $DSN == postgresql://agent:*@127.0.0.1:15432/* ]] || fail "dsn = '$DSN'"
+grep -q owner-password <<<"$DSN" && fail "DSN contains the database password"
+pass "tunr access printed a local DSN; no database credential in it"
+N=$(agent "psql '$DSN' -tAc 'select count(*) from fatura where tutar > 0'")
+[[ $N == 42 ]] || fail "select through pgproxy = '$N'"
+pass "SELECT through the read-only proxy: $N invoices"
+OUT=$(agent "psql '$DSN' -tAc \"update fatura set tutar = 0\" 2>&1" || true)
+grep -q "read-only" <<<"$OUT" || fail "update not refused: $OUT"
+OUT=$(agent "psql '$DSN' -tAc \"select 1; delete from fatura\" 2>&1" || true)
+grep -q "read-only" <<<"$OUT" || fail "stacked delete not refused: $OUT"
+N=$($DC exec -T -e PGPASSWORD=owner-password customer-pg psql -h 127.0.0.1 -U postgres -d logo -tAc "select count(*) from fatura where tutar > 0")
+[[ $N == 42 ]] || fail "customer data changed: $N"
+pass "UPDATE and stacked DELETE refused (42501); customer data untouched"
+OUT=$(agent "psql '$DSN' -tAc 'select * from fatura' 2>&1" || true)
+grep -q "row limit (20)" <<<"$OUT" || fail "max_rows not enforced: $OUT"
+pass "row limit enforced (42 rows > max_rows 20)"
+OUT=$(agent "psql 'postgresql://agent:wrong@127.0.0.1:15432/db?sslmode=disable' -tAc 'select 1' 2>&1" || true)
+grep -q "password authentication failed" <<<"$OUT" || fail "wrong local password accepted: $OUT"
+pass "a local client without the DSN secret is refused"
+summaries() {
+  local s
+  for s in $(api "$CJ" GET "/orgs/acme/grants/$PG/sessions" | jq -r '.sessions[].id'); do
+    api "$CJ" GET "/orgs/acme/sessions/$s/queries" | jq -r '.queries[] | "\(.command) \(.tables|join(",")) \(.row_count)"'
+  done
+}
+for _ in $(seq 30); do Q=$(summaries); (( $(grep -c . <<<"$Q") >= 4 )) && break; sleep 0.2; done # stored asynchronously
+grep -q "^SELECT fatura 1" <<<"$Q" || fail "no SELECT summary: $Q"
+grep -q "^blocked:UPDATE fatura" <<<"$Q" || fail "no blocked UPDATE summary: $Q"
+pass "customer sees per-query summaries: $(grep -c . <<<"$Q") queries, $(grep -c '^blocked' <<<"$Q") blocked"
+
+step "8. Network isolation"
 agent 'nc -z -w 2 customer-pg 5432' >/dev/null 2>&1 && fail "agent reached customer-pg directly"
 $DC exec -T relay sh -c 'nc -z -w 2 customer-pg 5432' >/dev/null 2>&1 && fail "relay reached customer-pg directly"
 pass "agent and relay cannot reach the customer network directly"
 
-step "8. Audit trail"
+step "9. Audit trail"
 EV=$(sql "SELECT count(*) FROM audit_log a JOIN orgs o ON o.id = a.org_id
           WHERE o.slug='acme' AND a.action IN ('bridge.session_opened','bridge.session_closed','bridge.site_connected',
-          'bridge.grant_requested','bridge.grant_first_approval','bridge.grant_approved','bridge.grant_revoked','bridge.kill')")
+          'bridge.grant_requested','bridge.grant_first_approval','bridge.grant_approved','bridge.grant_revoked','bridge.kill',
+          'bridge.query_blocked')")
 (( EV >= 12 )) || fail "customer audit events = $EV"
 api "$CJ" GET "/orgs/acme/audit/export?format=csv" >/dev/null
 SESS=$(sql "SELECT count(*) FROM access_sessions WHERE closed_at IS NOT NULL AND bytes_down > 0")

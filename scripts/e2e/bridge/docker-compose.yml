@@ -72,6 +72,9 @@ services:
       SITE_NAME: istanbul-ofis
       SITE_TOKEN: ${SITE_TOKEN:-unset}
       RELAY_KEY: ${RELAY_KEY:-unset}
+      # The customer's DBA credential, used once by connector.sh to create
+      # the read-only role. The agent never gets it.
+      CUSTOMER_PG_OWNER_PASSWORD: owner-password
     networks: [customer-net, relay-net]
     profiles: [connector]
 
