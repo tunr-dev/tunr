@@ -62,6 +62,7 @@ func init() {
 		newDownCmd(),
 		newServiceCmd(),
 		newConnectCmd(),
+		newAccessCmd(),
 		newStartCmd(),
 		newStopCmd(),
 		newStatusCmd(),

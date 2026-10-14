@@ -159,9 +159,14 @@ func connectRun(ctx context.Context, path string) error {
 	for _, r := range cfg.Resources {
 		term.Dim.Println(fmt.Sprintf("    %s (%s)", r.Name, r.Kind))
 	}
+	logf := func(f string, a ...any) { logger.Info(f, a...) }
+	streams, err := connector.NewManager(cfg, logf)
+	if err != nil {
+		return err
+	}
 	cl := &connector.Client{
 		Cfg: cfg, Token: token, Version: tunnel.Version, KillPath: connector.KillPath(path),
-		Logf: func(f string, a ...any) { logger.Info(f, a...) },
+		Streams: streams, Logf: logf,
 		OnReady: func(w bridge.WelcomeData) {
 			term.Green.Println(fmt.Sprintf("  ● online — %d resources registered", len(w.Resources)))
 		},

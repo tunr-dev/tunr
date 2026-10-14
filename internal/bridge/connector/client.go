@@ -34,6 +34,7 @@ func (e *RejectedError) Error() string {
 // Streams handles stream traffic. P3 provides the real implementation; the
 // default refuses every open.
 type Streams interface {
+	Ready(w bridge.WelcomeData)
 	Open(ctx context.Context, o bridge.OpenData, send func(bridge.Message))
 	Data(d bridge.DataPayload)
 	Close(c bridge.CloseData)
@@ -207,6 +208,7 @@ func (c *Client) session(ctx context.Context, pin ed25519.PublicKey) error {
 		return ErrKeyMismatch
 	}
 	c.Logf("connected: site %s (%s), %d resources", w.SiteName, w.SiteID, len(w.Resources))
+	c.Streams.Ready(w)
 	if c.OnReady != nil {
 		c.OnReady(w)
 	}
@@ -331,7 +333,8 @@ type refuseAll struct{}
 func (refuseAll) Open(_ context.Context, o bridge.OpenData, send func(bridge.Message)) {
 	send(bridge.NewMessage(bridge.MsgClose, bridge.CloseData{StreamID: o.StreamID, Reason: "unsupported"}))
 }
-func (refuseAll) Data(bridge.DataPayload) {}
-func (refuseAll) Close(bridge.CloseData)  {}
-func (refuseAll) Kill(bridge.KillData)    {}
-func (refuseAll) CloseAll(string)         {}
+func (refuseAll) Ready(bridge.WelcomeData) {}
+func (refuseAll) Data(bridge.DataPayload)  {}
+func (refuseAll) Close(bridge.CloseData)   {}
+func (refuseAll) Kill(bridge.KillData)     {}
+func (refuseAll) CloseAll(string)          {}
