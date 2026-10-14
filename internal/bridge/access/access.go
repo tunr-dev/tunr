@@ -33,7 +33,7 @@ func (e *Error) Error() string { return e.Code + ": " + e.Message }
 func (e *Error) Advice(resource string) string {
 	switch e.Code {
 	case "no_grant":
-		return "ask the customer to approve access to " + resource + " (tunr access request comes with grants, P4)"
+		return "ask for access first: tunr access request " + resource + ` --reason "…"`
 	case "site_offline":
 		return "the customer's connector is offline; they need to start `tunr connect`"
 	case "unknown_resource":

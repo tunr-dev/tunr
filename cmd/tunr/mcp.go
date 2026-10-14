@@ -266,6 +266,15 @@ Cursor (.cursor/mcp.json):
 				WithAppLogReader(logReader).
 				WithAppDeleter(deleter)
 
+			// Agent Bridge tools act as an agent identity, not as the user.
+			if at := os.Getenv("TUNR_AGENT_TOKEN"); at != "" {
+				b, err := newBridgeMCP(ctx, relayURL(), at)
+				if err != nil {
+					return err
+				}
+				server = server.WithBridge(b)
+			}
+
 			defer mgr.StopAll()
 			return server.Serve(ctx)
 		},

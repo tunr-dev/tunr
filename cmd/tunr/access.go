@@ -86,6 +86,7 @@ approved grant. The resource's real address never reaches this machine.`,
 			return cl.Serve(ctx, l)
 		},
 	}
+	cmd.AddCommand(newAccessRequestCmd(), newAccessListCmd(), newAccessStatusCmd())
 	cmd.Flags().IntVar(&port, "port", 0, "Local port on 127.0.0.1 (default: a free port)")
 	cmd.Flags().StringVar(&grantID, "grant", "", "Use a specific grant ID")
 	cmd.Flags().BoolVar(&tokenStdin, "token-stdin", false, "Read the agent token from stdin instead of TUNR_AGENT_TOKEN")

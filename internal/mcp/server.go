@@ -68,6 +68,7 @@ type Server struct {
 	deployApp   AppDeployer
 	appLogs     AppLogReader
 	deleteApp   AppDeleter
+	bridge      BridgeTools
 	in          io.Reader
 	out         io.Writer
 }
@@ -257,6 +258,10 @@ func (s *Server) handle(req *JSONRPCRequest) {
 // toolList returns the available MCP tools.
 // AI agents read these descriptions to decide what to call — keep them clear.
 func (s *Server) toolList() []map[string]interface{} {
+	return append(s.coreToolList(), bridgeToolList()...)
+}
+
+func (s *Server) coreToolList() []map[string]interface{} {
 	return []map[string]interface{}{
 		{
 			"name": "tunr_deploy",
@@ -429,6 +434,9 @@ func (s *Server) handleToolCall(req *JSONRPCRequest) {
 		return
 	}
 
+	if s.bridgeTool(req.ID, params.Name, params.Arguments) {
+		return
+	}
 	switch params.Name {
 	case "tunr_deploy":
 		s.toolDeploy(req.ID, params.Arguments)
