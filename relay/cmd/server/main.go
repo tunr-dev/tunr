@@ -163,10 +163,13 @@ func main() {
 	// ── Agent Bridge (TUNR_BRIDGE_ENABLED) ──
 	// Kapalıyken hiçbir route eklenmez; /bridge/* ve /api/v1/bridge/* eskisi
 	// gibi "/" tunnel proxy'sine düşer. Plan: docs/protocol/bridge.md.
-	bridgeSrv := bridge.New(bridge.ConfigFromEnv(os.Getenv))
+	bridgeSrv, err := bridge.New(bridge.ConfigFromEnv(os.Getenv), bridge.Deps{DB: database, JWT: jwtAuth})
+	if err != nil {
+		logger.Fatal("agent bridge: %v", err)
+	}
 	bridgeSrv.RegisterRoutes(mux)
 	if bridgeSrv.Enabled() {
-		logger.Info("agent bridge enabled: /api/v1/bridge/*")
+		logger.Info("agent bridge enabled: /api/v1/bridge/* (relay key %s)", bridgeSrv.RelayKey())
 	}
 
 	// ── Pivot Faz 0: control plane (/v1/apps) ──

@@ -52,6 +52,20 @@ const (
 	ActionSuspiciousRequest = "security.suspicious_request"
 	ActionRateLimitHit      = "security.rate_limit_hit"
 
+	// Agent Bridge eylemleri (audit_log.org_id dolu yazılır)
+	ActionBridgeOrgCreated         = "bridge.org_created"
+	ActionBridgeMemberAdded        = "bridge.member_added"
+	ActionBridgeLinkCreated        = "bridge.link_created"
+	ActionBridgeLinkRevoked        = "bridge.link_revoked"
+	ActionBridgeSiteCreated        = "bridge.site_created"
+	ActionBridgeSiteDeleted        = "bridge.site_deleted"
+	ActionBridgeSiteTokenRotated   = "bridge.site_token_rotated"
+	ActionBridgeResourceUpdated    = "bridge.resource_updated"
+	ActionBridgeAgentCreated       = "bridge.agent_created"
+	ActionBridgeAgentStatusChanged = "bridge.agent_status_changed"
+	ActionBridgeAgentTokenIssued   = "bridge.agent_token_issued"
+	ActionBridgeAgentTokenRevoked  = "bridge.agent_token_revoked"
+
 	// Admin eylemleri
 	ActionAdminUserBanned   = "admin.user_banned"
 	ActionAdminDataExport   = "admin.data_export"

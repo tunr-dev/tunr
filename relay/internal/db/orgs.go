@@ -365,3 +365,9 @@ func (db *DB) AuditOrg(ctx context.Context, orgID, userID, action string, detail
 	}
 	return nil
 }
+
+// QueryRowForTest exposes a raw single-row query for tests in other packages
+// (audit assertions). Not for production code paths.
+func (db *DB) QueryRowForTest(ctx context.Context, sql string, args ...any) pgx.Row {
+	return db.pool.QueryRow(ctx, sql, args...)
+}
