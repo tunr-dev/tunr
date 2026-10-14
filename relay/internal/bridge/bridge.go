@@ -65,6 +65,7 @@ type Server struct {
 	db     *db.DB
 	jwt    *auth.JWTAuth
 	signer *auth.GrantSigner
+	hub    *ConnectorHub
 }
 
 // New builds the bridge server. With cfg.Enabled false it does nothing and
@@ -99,8 +100,12 @@ func New(cfg Config, deps Deps) (*Server, error) {
 		return nil, errors.New(auth.EnvGrantSigningKey + " is required when " + EnvEnabled +
 			"=1 (connectors pin the relay key; an ephemeral key would break them on every restart)")
 	}
+	s.hub = NewConnectorHub(deps.DB, s.signer.KeyString())
 	return s, nil
 }
+
+// Hub exposes the connector hub (nil when disabled).
+func (s *Server) Hub() *ConnectorHub { return s.hub }
 
 // Enabled reports whether the flag was on at boot.
 func (s *Server) Enabled() bool { return s.cfg.Enabled }
@@ -121,6 +126,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 		return
 	}
 	mux.HandleFunc("GET /api/v1/bridge/health", s.handleHealth)
+	mux.HandleFunc("GET /bridge/connect", s.hub.ServeConnect)
 	s.registerAPI(mux)
 }
 

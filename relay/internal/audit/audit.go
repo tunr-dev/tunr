@@ -65,6 +65,8 @@ const (
 	ActionBridgeAgentStatusChanged = "bridge.agent_status_changed"
 	ActionBridgeAgentTokenIssued   = "bridge.agent_token_issued"
 	ActionBridgeAgentTokenRevoked  = "bridge.agent_token_revoked"
+	ActionBridgeSiteConnected      = "bridge.site_connected"
+	ActionBridgeSiteDisconnected   = "bridge.site_disconnected"
 
 	// Admin eylemleri
 	ActionAdminUserBanned   = "admin.user_banned"

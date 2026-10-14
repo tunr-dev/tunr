@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -411,4 +413,74 @@ func rawOrNil(r json.RawMessage) any {
 		return nil
 	}
 	return string(r)
+}
+
+// ─── Connector session state (P2) ───────────────────────────────────────────
+
+// ResourceDecl is a resource a connector announces: name and kind only.
+type ResourceDecl struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// ErrResourceOwnedByOtherSite means a connector announced a resource name
+// that another site of the same org already serves. Moving it silently would
+// let one site hijack another's address.
+var ErrResourceOwnedByOtherSite = errors.New("resource name is served by another site")
+
+// SyncSiteResources makes the site's active resources exactly decls: each one
+// is upserted (reactivated unless disabled by the customer), and any resource
+// of this site not announced is marked offline. Atomic.
+func (db *DB) SyncSiteResources(ctx context.Context, orgID, siteID string, decls []ResourceDecl) ([]Resource, error) {
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	names := make([]string, 0, len(decls))
+	out := make([]Resource, 0, len(decls))
+	for _, d := range decls {
+		var other string
+		err := tx.QueryRow(ctx,
+			`SELECT site_id FROM resources WHERE org_id = $1 AND name = $2`, orgID, d.Name).Scan(&other)
+		if err == nil && other != siteID {
+			return nil, fmt.Errorf("%w: %s", ErrResourceOwnedByOtherSite, d.Name)
+		}
+		r, err := scanResource(tx.QueryRow(ctx, `
+			INSERT INTO resources (id, site_id, org_id, name, kind)
+			SELECT $1, s.id, s.org_id, $4, $5 FROM sites s WHERE s.id = $2 AND s.org_id = $3
+			ON CONFLICT (org_id, name) DO UPDATE
+			  SET kind = EXCLUDED.kind,
+			      status = CASE WHEN resources.status = 'disabled' THEN 'disabled' ELSE 'active' END
+			  WHERE resources.site_id = EXCLUDED.site_id
+			RETURNING `+resourceCols, newID("res_"), siteID, orgID, d.Name, d.Kind))
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, d.Name)
+		out = append(out, *r)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE resources SET status = 'offline'
+		WHERE site_id = $1 AND org_id = $2 AND status = 'active' AND NOT (name = ANY($3))`,
+		siteID, orgID, names); err != nil {
+		return nil, err
+	}
+	return out, mapErr(tx.Commit(ctx))
+}
+
+// SetSiteOnline records a connector session start.
+func (db *DB) SetSiteOnline(ctx context.Context, siteID, connectorVer string) error {
+	return affected(db.pool.Exec(ctx, `
+		UPDATE sites SET status = 'online', last_seen_at = now(), connector_ver = NULLIF($2, '')
+		WHERE id = $1 AND status <> 'disabled'`, siteID, connectorVer))
+}
+
+// SetSiteOffline records a connector session end. A disabled site stays disabled.
+func (db *DB) SetSiteOffline(ctx context.Context, siteID string) error {
+	_, err := db.pool.Exec(ctx, `
+		UPDATE sites SET status = 'offline', last_seen_at = now()
+		WHERE id = $1 AND status = 'online'`, siteID)
+	return err
 }

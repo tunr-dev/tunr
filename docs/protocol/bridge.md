@@ -3,8 +3,9 @@
 Status: draft. Implemented on `bridge/main`; relay side only active with
 `TUNR_BRIDGE_ENABLED=1`.
 
-The bridge reuses the tunnel framing: one WebSocket, JSON messages with a
-`type` discriminator. Bridge messages use their own endpoints, so they never
+The bridge reuses the tunnel framing: one WebSocket, JSON messages
+`{"type": "...", "data": {...}}` (the same envelope as the tunnel protocol;
+the field tables below describe `data`). Bridge messages use their own endpoints, so they never
 appear on `/tunnel/connect`; existing message types are unchanged. Both peers
 must ignore unknown `type` values (forward compatibility).
 
@@ -12,7 +13,7 @@ must ignore unknown `type` values (forward compatibility).
 
 | Endpoint | Peer | Auth |
 | --- | --- | --- |
-| `GET /bridge/connect` (WS) | connector, one per site | site token |
+| `GET /bridge/connect` (WS) | connector, one per site | `Authorization: Bearer tunr_site_…`; requests with an `Origin` header are refused |
 | `GET /bridge/access` (WS) | agent (`tunr access`), one per local TCP connection | agent token |
 | `/api/v1/bridge/*` (HTTP) | humans (portal, CLI) and agents (grant requests) | human JWT or agent token, per route |
 
@@ -23,8 +24,10 @@ plain HTTP 401 and no upgrade.
 
 | Type | Direction | Fields | Meaning |
 | --- | --- | --- | --- |
-| `bridge_hello` | C→R | `site_token`, `connector_version`, `resources[] {name, kind}` | Announce site and resource *names* (never addresses) |
-| `bridge_welcome` | R→C | `site_id`, `relay_pubkey`, `resources[] {name, id}` | Connector compares `relay_pubkey` with the fingerprint from its install command and disconnects on mismatch |
+| `bridge_hello` | C→R | `connector_version`, `resources[] {name, kind}` | Announce resource *names* (never addresses). Names: 3–32 chars `[a-z0-9-]`; kinds `postgres`, `tcp`, `http`; max 100. The site's resources become exactly this set (missing ones go `offline`); a name served by another site of the same org is refused (`resource_conflict`) |
+| `bridge_welcome` | R→C | `site_id`, `site_name`, `relay_key`, `resources[] {name, id}` | Connector compares `relay_key` with the key from its install command and disconnects on mismatch |
+| `ping` / `pong` | R→C / C→R | — | Every 30 s; the relay drops a connector silent for 75 s |
+| `error` | R→C | `code`, `message` | Sent before a relay-initiated close: `bad_hello`, `resource_conflict`, `replaced` (a newer connector for the same site connected), `disconnected` (token rotated, site deleted) |
 | `bridge_open` | R→C | `stream_id`, `resource_id`, `grant_jwt` | Open an authorised stream |
 | `bridge_data` | both | `stream_id`, `payload` (base64) | Same encoding as `tcp_data` |
 | `bridge_close` | both | `stream_id`, `reason` | `client`, `expired`, `revoked`, `killed`, `invalid_grant`, `error` |

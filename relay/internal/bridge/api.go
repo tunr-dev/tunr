@@ -421,6 +421,7 @@ func (s *Server) deleteSite(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, err, "site")
 		return
 	}
+	s.hub.Disconnect(id, "site deleted")
 	s.audit(r, m.ID, audit.ActionBridgeSiteDeleted, map[string]any{"site_id": id})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -444,6 +445,7 @@ func (s *Server) rotateSiteToken(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, err, "site")
 		return
 	}
+	s.hub.Disconnect(site.ID, "site token rotated")
 	s.audit(r, m.ID, audit.ActionBridgeSiteTokenRotated, map[string]any{"site_id": site.ID})
 	writeJSON(w, http.StatusOK, s.siteSecret(site, token))
 }
