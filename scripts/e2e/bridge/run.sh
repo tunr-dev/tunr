@@ -4,7 +4,7 @@
 #   ./scripts/e2e/bridge/run.sh          # build, run, assert, tear down
 #   KEEP=1 ./scripts/e2e/bridge/run.sh   # leave the stack running afterwards
 #
-# Needs docker (compose v2), curl, jq, python3 (stdlib only, to mint test JWTs).
+# Needs docker (compose v2), curl, jq, python3 (stdlib only, to mint test JWTs), awk.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -39,6 +39,8 @@ api() { # api TOKEN METHOD PATH [JSON] → body; fails on non-2xx
   echo "$out"
 }
 agent() { $DC exec -T -e TUNR_AGENT_TOKEN="$AGENT_TOKEN" agent bash -c "$1"; }
+agentd() { $DC exec -d -T -e TUNR_AGENT_TOKEN="$AGENT_TOKEN" agent bash -c "$1"; } # detached: outlives this exec
+human() { $DC exec -T -e TUNR_TOKEN="$1" agent bash -c "$2"; } # customer CLI (runs in any box with the binary)
 
 step "1. Build and start relay, relay-db, customer network"
 $DC --profile connector down -v --remove-orphans >/dev/null 2>&1 || true
@@ -59,7 +61,9 @@ SITE=$(api "$CJ" POST /orgs/acme/sites '{"name":"istanbul-ofis"}')
 export SITE_TOKEN=$(jq -r .token <<<"$SITE") RELAY_KEY=$(jq -r .relay_key <<<"$SITE")
 AGENT_ID=$(api "$VJ" POST /orgs/vendor-co/agents '{"name":"invoice-reconciler"}' | jq -r .id)
 AGENT_TOKEN=$(api "$VJ" POST "/orgs/vendor-co/agents/$AGENT_ID/tokens" '{"ttl":"1h"}' | jq -r .token)
-pass "customer acme linked vendor-co; site + agent created"
+C2UID=$(sql "INSERT INTO users(email) VALUES ('cfo@acme.test') RETURNING id"); C2J=$(jwt "$C2UID" cfo@acme.test)
+api "$CJ" POST /orgs/acme/members '{"email":"cfo@acme.test","role":"approver"}' >/dev/null
+pass "customer acme linked vendor-co; site + agent created; second approver added"
 
 step "3. Connector comes online (outbound only)"
 $DC --profile connector up -d connector >/dev/null
@@ -96,17 +100,53 @@ grep -q mode_not_enforceable <<<"$OUT" || fail "expected mode_not_enforceable: $
 grep -q HELLO <<<"$OUT" && fail "data flowed on an ro tcp grant"
 pass "stream refused by the connector: mode_not_enforceable"
 
-step "6. rw grant → bytes and a real Postgres query through the bridge"
-grant rw
+step "6. Grant flow: request → two approvals → traffic"
+OUT=$(agent 'tunr catalog' 2>&1)
+grep -q "acme/nas" <<<"$OUT" || fail "catalog: $OUT"
+OUT=$(agent 'tunr access request acme/nas --mode ro --ttl 1h --reason "x" 2>&1' || true)
+grep -q mode_not_enforceable <<<"$OUT" || fail "relay accepted ro on tcp: $OUT"
+pass "relay policy refuses ro on raw tcp before anyone is asked"
+sql "UPDATE grants SET status='revoked' WHERE status='approved'" >/dev/null
+GID=$(agent 'tunr access request acme/nas --ttl 1h --reason "Nightly export of shared files"' | grep -o 'grt_[0-9a-f]*' | head -1)
+[[ -n $GID ]] || fail "no grant id from tunr access request"
+human "$CJ" "tunr grants approve $GID --org acme" | grep -q "pending" || fail "first rw approval should leave it pending"
+OUT=$(human "$CJ" "tunr grants approve $GID --org acme 2>&1" || true)
+grep -q same_approver <<<"$OUT" || fail "same approver twice was accepted: $OUT"
+human "$C2J" "tunr grants approve $GID --org acme" | grep -q approved || fail "second approval did not approve"
+pass "rw grant $GID approved by two different people (same person twice refused)"
 OUT=$(agent 'tunr access acme/nas --port 14455 >/dev/null 2>&1 & sleep 1;
              printf "select 1" | nc -w 2 127.0.0.1 14455; kill %1' || true)
 [[ $OUT == "SELECT 1"* ]] || fail "echo through bridge = '$OUT'"
 pass "tcp echo round trip: '$OUT'"
+PGID=$(agent 'tunr access request acme/pg-raw --ttl 30m --reason "Count October invoices"' | grep -o 'grt_[0-9a-f]*' | head -1)
+human "$CJ" "tunr grants approve $PGID --org acme" >/dev/null; human "$C2J" "tunr grants approve $PGID --org acme" >/dev/null
 N=$(agent 'tunr access acme/pg-raw --port 15432 >/dev/null 2>&1 & sleep 1;
            PGPASSWORD=owner-password psql -h 127.0.0.1 -p 15432 -U postgres -d logo -tAc "select count(*) from fatura";
            kill %1' || true)
 [[ $N == 42 ]] || fail "select count(*) from fatura through bridge = '$N'"
 pass "psql through the bridge: 42 invoices (raw tcp; read-only postgres arrives in P5)"
+
+step "6b. Revoke cuts an open connection (≤ 2 s)"
+agentd 'tunr access acme/nas --port 14456 >/tmp/rv.log 2>&1'
+sleep 1
+# cat exits when the socket reaches EOF (nc would wait for its stdin).
+agentd 'exec 3<>/dev/tcp/127.0.0.1/14456; cat <&3 >/dev/null; echo $EPOCHREALTIME > /tmp/closed_at'
+sleep 1.5
+agent 'test ! -f /tmp/closed_at' || fail "connection closed before the revoke"
+human "$CJ" "echo \$EPOCHREALTIME > /tmp/t0; tunr grants revoke $GID --org acme" | grep -q revoked || fail "revoke failed"
+for _ in $(seq 40); do agent 'test -f /tmp/closed_at' && break; sleep 0.1; done
+agent 'test -f /tmp/closed_at' || fail "open connection survived revocation"
+DT=$(agent 'awk -v a="$(cat /tmp/t0)" -v b="$(cat /tmp/closed_at)" "BEGIN{printf \"%.3f\", b-a}"')
+awk -v d="$DT" 'BEGIN{exit !(d <= 2.0)}' || fail "revocation took ${DT}s (> 2s)"
+pass "connection closed ${DT}s after revoke"
+OUT=$(agent 'tunr access acme/nas --port 14457 2>&1' || true)
+grep -q no_grant <<<"$OUT" || fail "revoked grant still usable: $OUT"
+pass "revoked grant can't be used again"
+
+step "6c. Customer kill switch on the site"
+api "$CJ" POST /orgs/acme/sites/$(api "$CJ" GET /orgs/acme/sites | jq -r '.sites[0].id')/kill >/dev/null
+[[ $(api "$CJ" GET "/orgs/acme/grants?status=approved" | jq '.grants | length') == 0 ]] || fail "approved grants survived kill"
+pass "kill revoked every approved grant on the site"
 
 step "7. Network isolation"
 agent 'nc -z -w 2 customer-pg 5432' >/dev/null 2>&1 && fail "agent reached customer-pg directly"
@@ -115,10 +155,12 @@ pass "agent and relay cannot reach the customer network directly"
 
 step "8. Audit trail"
 EV=$(sql "SELECT count(*) FROM audit_log a JOIN orgs o ON o.id = a.org_id
-          WHERE o.slug='acme' AND a.action IN ('bridge.session_opened','bridge.session_closed','bridge.site_connected')")
-(( EV >= 5 )) || fail "customer audit events = $EV"
+          WHERE o.slug='acme' AND a.action IN ('bridge.session_opened','bridge.session_closed','bridge.site_connected',
+          'bridge.grant_requested','bridge.grant_first_approval','bridge.grant_approved','bridge.grant_revoked','bridge.kill')")
+(( EV >= 12 )) || fail "customer audit events = $EV"
+api "$CJ" GET "/orgs/acme/audit/export?format=csv" >/dev/null
 SESS=$(sql "SELECT count(*) FROM access_sessions WHERE closed_at IS NOT NULL AND bytes_down > 0")
 (( SESS >= 2 )) || fail "closed sessions with traffic = $SESS"
-pass "$EV customer audit events; $SESS sessions with byte counts"
+pass "$EV customer audit events (exportable as CSV); $SESS sessions with byte counts"
 
 printf '\n\033[32mbridge e2e: all checks passed\033[0m\n'
