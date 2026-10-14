@@ -1,0 +1,89 @@
+# Agent Bridge end-to-end environment (roadmap P3-T4).
+#
+#   relay-net     relay, relay-db, connector, agent   (the "internet")
+#   customer-net  customer-pg, customer-echo, connector   internal: no way out
+#   vendor-net    agent                                   internal
+#
+# Neither the agent nor the relay can reach customer-net; the connector is
+# the only path, and it only dials targets from its own config.
+name: tunr-bridge-e2e
+
+x-image: &image
+  image: tunr-bridge-e2e:latest
+
+services:
+  relay-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tunr
+      POSTGRES_PASSWORD: tunr
+      POSTGRES_DB: tunr
+    volumes:
+      - ../../../relay/migrations:/docker-entrypoint-initdb.d:ro
+    networks: [relay-net]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "tunr"]
+      interval: 1s
+      retries: 60
+
+  relay:
+    <<: *image
+    build:
+      context: ../../..
+      dockerfile: scripts/e2e/bridge/Dockerfile
+    command: ["relay"]
+    environment:
+      TUNR_DOMAIN: bridge.test
+      TUNR_JWT_SECRET: e2e-only-secret-not-for-production-0123456789
+      DATABASE_URL: postgres://tunr:tunr@relay-db:5432/tunr?sslmode=disable
+      TUNR_BRIDGE_ENABLED: "1"
+      # Fixed e2e-only key so the run is reproducible.
+      TUNR_GRANT_SIGNING_KEY: ZTJlLW9ubHktZ3JhbnQta2V5LTMyLWJ5dGVzLWxvbmc=
+      TUNR_BRIDGE_PUBLIC_URL: http://relay:8080
+      TUNR_ROUTE_CACHE: /tmp/routes.json
+    ports: ["127.0.0.1:18090:8080"]
+    depends_on:
+      relay-db: {condition: service_healthy}
+    networks: [relay-net]
+
+  customer-pg:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: owner-password
+    volumes:
+      - ./customer-pg-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [customer-net]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "logo"]
+      interval: 1s
+      retries: 60
+
+  customer-echo:
+    <<: *image
+    command: ["socat", "TCP-LISTEN:7777,fork,reuseaddr", "EXEC:tr a-z A-Z"]
+    networks: [customer-net]
+
+  connector:
+    <<: *image
+    command: ["/e2e/connector.sh"]
+    environment:
+      RELAY_URL: http://relay:8080
+      TUNR_BRIDGE_INSECURE_RELAY: "1"
+      SITE_NAME: istanbul-ofis
+      SITE_TOKEN: ${SITE_TOKEN:-unset}
+      RELAY_KEY: ${RELAY_KEY:-unset}
+    networks: [customer-net, relay-net]
+    profiles: [connector]
+
+  agent:
+    <<: *image
+    command: ["sleep", "infinity"]
+    environment:
+      TUNR_RELAY_URL: http://relay:8080
+      TUNR_BRIDGE_INSECURE_RELAY: "1"
+    networks: [vendor-net, relay-net]
+
+networks:
+  relay-net: {}
+  customer-net: {internal: true}
+  vendor-net: {internal: true}

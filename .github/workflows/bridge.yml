@@ -1,0 +1,51 @@
+name: Bridge
+
+# Agent Bridge checks: database-backed unit tests and the docker e2e.
+# Runs on bridge/** branches and on PRs to main.
+on:
+  push:
+    branches: ["bridge/**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  db-tests:
+    name: Bridge tests (with Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-retries 30
+    env:
+      TUNR_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            relay/go.sum
+      - name: Relay (db, auth, bridge)
+        working-directory: relay
+        run: go test -race -count=1 ./internal/db/... ./internal/auth/... ./internal/bridge/...
+      - name: CLI (connector, access, secrets)
+        run: go test -race -count=1 ./internal/bridge/... ./internal/auth/...
+
+  e2e:
+    name: Bridge e2e (docker compose)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run scripts/e2e/bridge/run.sh
+        run: ./scripts/e2e/bridge/run.sh
