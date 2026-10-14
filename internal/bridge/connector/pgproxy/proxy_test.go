@@ -227,6 +227,25 @@ func TestProxyRowLimitAndAudit(t *testing.T) {
 	}
 }
 
+// The default upstream sslmode is "prefer": it must still connect to a
+// server without TLS (the test server has none).
+func TestProxyDefaultSSLModeFallsBack(t *testing.T) {
+	e := newPGEnv(t)
+	c1, c2 := net.Pipe()
+	go func() {
+		_ = Serve(context.Background(), c2, Config{Upstream: e.upstream, Database: e.db, User: e.role,
+			Password: e.rolePW, ClientSecretHash: HashSecret(clientSecret)}) // SSLMode left empty
+	}()
+	cfg, _ := pgconn.ParseConfig("postgres://agent@127.0.0.1:5999/x?sslmode=disable")
+	cfg.Password = clientSecret
+	cfg.DialFunc = func(context.Context, string, string) (net.Conn, error) { return c1, nil }
+	pc, err := pgconn.ConnectConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("connect with default sslmode: %v", err)
+	}
+	pc.Close(context.Background())
+}
+
 func TestProxyQPS(t *testing.T) {
 	e := newPGEnv(t)
 	c := e.connect(t, Limits{QPS: 2})

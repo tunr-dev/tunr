@@ -471,3 +471,22 @@ func (db *DB) InsertAccessQuery(ctx context.Context, q QuerySummary) error {
 		q.SessionID, cmd, q.Tables, q.RowCount, q.DurationMS, q.Blocked, q.QueryText)
 	return err
 }
+
+// SessionMeta is what the relay needs to file a summary for a stream that
+// has already closed.
+type SessionMeta struct {
+	SessionID, GrantID, AgentID, SiteID, CustomerOrgID, VendorOrgID string
+}
+
+// GetSessionMeta resolves a session to its grant, agent, site and orgs.
+func (db *DB) GetSessionMeta(ctx context.Context, sessionID string) (*SessionMeta, error) {
+	var m SessionMeta
+	err := db.pool.QueryRow(ctx, `
+		SELECT s.id, g.id, g.agent_id, r.site_id, g.customer_org_id, g.vendor_org_id
+		FROM access_sessions s JOIN grants g ON g.id = s.grant_id JOIN resources r ON r.id = g.resource_id
+		WHERE s.id = $1`, sessionID).Scan(&m.SessionID, &m.GrantID, &m.AgentID, &m.SiteID, &m.CustomerOrgID, &m.VendorOrgID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &m, nil
+}

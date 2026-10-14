@@ -190,7 +190,8 @@ func connectUpstream(ctx context.Context, cfg Config) (*pgconn.HijackedConn, err
 	if err != nil {
 		return nil, err
 	}
-	pc.Fallbacks = nil
+	// pc.Fallbacks is kept: it is how sslmode=prefer falls back to a plain
+	// connection when the server has no TLS.
 	timeout := cfg.ConnectTimeout
 	if timeout == 0 {
 		timeout = 10 * time.Second
@@ -445,13 +446,16 @@ func (s *session) fromServer() error {
 				size += len(v)
 			}
 			s.mu.Lock()
-			s.cur.rows++
-			s.bytes += int64(size)
-			rows, total, exceeded := s.cur.rows, s.bytes, s.exceeded
-			overRows := s.cfg.Limits.MaxRows > 0 && rows > s.cfg.Limits.MaxRows && !exceeded
+			exceeded := s.exceeded
+			overRows := !exceeded && s.cfg.Limits.MaxRows > 0 && s.cur.rows+1 > s.cfg.Limits.MaxRows
 			if overRows {
 				s.exceeded = true
 			}
+			if !exceeded && !overRows {
+				s.cur.rows++ // rows actually delivered to the agent
+				s.bytes += int64(size)
+			}
+			total := s.bytes
 			s.mu.Unlock()
 			if s.cfg.Limits.MaxBytes > 0 && total > s.cfg.Limits.MaxBytes {
 				_ = s.toClient(true, &pgproto3.ErrorResponse{Severity: "FATAL", Code: "54000",

@@ -350,11 +350,22 @@ func settingReason(st []token) string {
 	return ""
 }
 
-// tables returns identifiers following FROM / JOIN (schema.table joined).
+// tables returns identifiers following FROM / JOIN / UPDATE / INTO / TABLE
+// (schema.table joined) — read targets, and for refused statements the table
+// the agent tried to write, which is what the data owner wants to see.
 func tables(st []token) []string {
 	var out []string
 	for i := 0; i+1 < len(st); i++ {
-		if st[i].kind != tokWord || (st[i].text != "FROM" && st[i].text != "JOIN") {
+		if st[i].kind != tokWord {
+			continue
+		}
+		switch st[i].text {
+		case "FROM", "JOIN", "UPDATE", "INTO", "TRUNCATE":
+		case "TABLE":
+			if i != 0 && !(i == 1 && st[0].text == "TRUNCATE") {
+				continue
+			}
+		default:
 			continue
 		}
 		j := i + 1

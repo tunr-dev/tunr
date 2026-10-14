@@ -144,8 +144,15 @@ func TestClassifyAudit(t *testing.T) {
 	if v.Command != "SELECT" || strings.Join(v.Tables, ",") != "public.fatura,Stok" {
 		t.Errorf("verdict = %+v", v)
 	}
-	if v := Classify("delete from fatura"); v.Command != "DELETE" || v.Allowed {
-		t.Errorf("verdict = %+v", v)
+	for q, want := range map[string]string{
+		"delete from fatura":                 "fatura",
+		"update public.fatura set tutar = 0": "public.fatura",
+		"insert into stok values (1)":        "stok",
+		"TABLE fatura":                       "fatura",
+	} {
+		if v := Classify(q); strings.Join(v.Tables, ",") != want {
+			t.Errorf("%q tables = %v, want %s", q, v.Tables, want)
+		}
 	}
 }
 

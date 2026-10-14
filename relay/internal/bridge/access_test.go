@@ -519,3 +519,47 @@ func TestAccessQuerySummariesPersisted(t *testing.T) {
 		t.Errorf("session query_count = %d", qc)
 	}
 }
+
+// Summaries that arrive after the agent hung up are still filed — but only
+// when the sending connector is the session's own site.
+func TestAccessLateSummary(t *testing.T) {
+	e := newAccessEnv(t)
+	cc, conn := e.connector(e.siteToken)
+	e.approve("rw", time.Hour)
+	a, _, _ := e.dialAgent(e.agentTok, "acme/echo")
+	readAgent(t, a)
+	open := next(t, conn, MsgOpen)
+	var od OpenData
+	_ = json.Unmarshal(open.Data, &od)
+	a.Close()
+	next(t, conn, MsgClose) // relay has dropped the stream
+
+	// A different site's connector tries to file one for this session first.
+	tok2, hash2, _ := auth.GenerateSiteToken()
+	_, _ = e.d.CreateSite(context.Background(), e.cust.ID, "other-site", hash2)
+	evil, _, err := websocket.DefaultDialer.Dial(e.wsURL("/bridge/connect"), http.Header{"Authorization": {"Bearer " + tok2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer evil.Close()
+	_ = evil.WriteJSON(msg(MsgHello, HelloData{}))
+	var w Message
+	_ = evil.ReadJSON(&w)
+	_ = evil.WriteJSON(msg(MsgAudit, AuditData{StreamID: od.StreamID, Command: "FORGED"}))
+
+	_ = cc.WriteJSON(msg(MsgAudit, AuditData{StreamID: od.StreamID, Command: "DELETE", Blocked: true}))
+	var cmds []string
+	for i := 0; i < 100 && len(cmds) == 0; i++ {
+		qs, _ := e.d.ListSessionQueries(context.Background(), e.cust.ID, od.StreamID, false)
+		cmds = nil
+		for _, q := range qs {
+			cmds = append(cmds, q.Command)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
+	qs, _ := e.d.ListSessionQueries(context.Background(), e.cust.ID, od.StreamID, false)
+	if len(qs) != 1 || qs[0].Command != "blocked:DELETE" {
+		t.Fatalf("late summaries = %+v (forged one must be dropped)", qs)
+	}
+}

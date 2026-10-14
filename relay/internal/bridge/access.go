@@ -77,8 +77,9 @@ type Access struct {
 }
 
 type auditJob struct {
-	st *agentStream
-	a  AuditData
+	st     *agentStream // nil when the stream had already closed
+	siteID string       // the connector that sent it
+	a      AuditData
 }
 
 // NewAccess wires the access path and installs itself as the hub's sink.
@@ -388,6 +389,15 @@ func (a *Access) FromConnector(siteID string, m Message) {
 	a.mu.Lock()
 	st, ok := a.streams[ref.StreamID]
 	a.mu.Unlock()
+	if m.Type == MsgAudit && !ok {
+		// Summaries often arrive just after the agent hung up; the worker
+		// resolves the closed session from the DB (and re-checks the site).
+		var ad AuditData
+		if json.Unmarshal(m.Data, &ad) == nil {
+			a.enqueueAudit(auditJob{siteID: siteID, a: ad})
+		}
+		return
+	}
 	if !ok || st.siteID != siteID {
 		return
 	}
@@ -421,11 +431,7 @@ func (a *Access) FromConnector(siteID string, m Message) {
 		if json.Unmarshal(m.Data, &ad) != nil {
 			return
 		}
-		select {
-		case a.audits <- auditJob{st: st, a: ad}:
-		default:
-			logger.Warn("bridge: audit queue full, dropping a query summary for %s", st.id)
-		}
+		a.enqueueAudit(auditJob{st: st, siteID: siteID, a: ad})
 	}
 }
 
@@ -521,12 +527,29 @@ func effectiveLimits(resource, grant json.RawMessage) *auth.GrantLimits {
 	return &out
 }
 
+func (a *Access) enqueueAudit(j auditJob) {
+	select {
+	case a.audits <- j:
+	default:
+		logger.Warn("bridge: audit queue full, dropping a query summary for %s", j.a.StreamID)
+	}
+}
+
 // auditWorker persists query summaries off the connector's read loop.
 // Query text is stored only when the customer org turned log_query_text on;
 // blocked statements also land in both orgs' audit_log (without the text).
 func (a *Access) auditWorker() {
 	for j := range a.audits {
 		ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+		if j.st == nil {
+			meta, err := a.db.GetSessionMeta(ctx, j.a.StreamID)
+			if err != nil || meta.SiteID != j.siteID {
+				cancel() // unknown session, or another site's: drop
+				continue
+			}
+			j.st = &agentStream{id: meta.SessionID, siteID: meta.SiteID, grantID: meta.GrantID,
+				agentID: meta.AgentID, custOrg: meta.CustomerOrgID, vendorOrg: meta.VendorOrgID}
+		}
 		ad := j.a
 		text := ""
 		if ad.QueryText != "" && a.db.OrgLogsQueryText(ctx, j.st.custOrg) {
