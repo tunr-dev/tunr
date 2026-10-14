@@ -66,6 +66,7 @@ type Server struct {
 	jwt    *auth.JWTAuth
 	signer *auth.GrantSigner
 	hub    *ConnectorHub
+	access *Access
 }
 
 // New builds the bridge server. With cfg.Enabled false it does nothing and
@@ -101,6 +102,7 @@ func New(cfg Config, deps Deps) (*Server, error) {
 			"=1 (connectors pin the relay key; an ephemeral key would break them on every restart)")
 	}
 	s.hub = NewConnectorHub(deps.DB, s.signer.KeyString())
+	s.access = NewAccess(deps.DB, deps.JWT, s.signer, s.hub)
 	return s, nil
 }
 
@@ -127,6 +129,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET /api/v1/bridge/health", s.handleHealth)
 	mux.HandleFunc("GET /bridge/connect", s.hub.ServeConnect)
+	mux.HandleFunc("GET /bridge/access", s.access.ServeAccess)
 	s.registerAPI(mux)
 }
 

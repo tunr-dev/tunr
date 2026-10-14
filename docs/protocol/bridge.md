@@ -36,11 +36,40 @@ plain HTTP 401 and no upgrade.
 
 ## Agent ↔ relay (`/bridge/access`)
 
-1. Agent → `access_hello {resource: "<org-slug>/<name>", grant_id?}`
-2. Relay → `access_ready {stream_id, grant_expires_at}` or
-   `access_error {code}` where `code` ∈ `no_grant`, `grant_pending`,
-   `site_offline`, `unknown_resource`, `forbidden`.
-3. Then `bridge_data` / `bridge_close` as above.
+`GET /bridge/access?resource=<customer-slug>/<name>[&grant=grt_…]` with
+`Authorization: Bearer <agent token>`. One WebSocket per agent-side TCP
+connection.
+
+All checks run before the upgrade; a refusal is a plain HTTP response with
+`{"error": code, "message": …}`:
+
+| Status | `error` | Meaning |
+| --- | --- | --- |
+| 401 | `auth_required`, `invalid_token` | missing, invalid, expired or revoked agent token; disabled agent |
+| 400 | `bad_resource` | address is not `<customer>/<name>` |
+| 404 | `unknown_resource` | no such active resource, or the customer has not linked the vendor (indistinguishable) |
+| 403 | `no_grant` | no approved, unexpired grant for this agent × resource |
+| 503 | `site_offline` | the customer's connector is not attached |
+| 429 | `too_many_streams` | more than 32 open streams for this agent token |
+
+After the upgrade:
+
+- **Binary messages** carry raw stream bytes, both directions.
+- **Text messages** carry JSON control:
+  - relay → agent, first: `access_ready {stream_id, grant_id, mode, grant_expires_at}`
+  - either way: `access_close {stream_id, reason}` — reasons include `client`,
+    `expired` (grant end; the relay closes the stream at `expires_at`),
+    `revoked`, `site_offline`, `invalid_grant` (connector refused),
+    `slow_consumer`.
+
+The relay forwards bytes to the connector as `bridge_data` (base64, ≤32 KiB
+per message). A connector's `bridge_data`/`bridge_close` are only accepted
+for streams of its own site.
+
+**TCP resources and modes.** Raw TCP cannot be made read-only, so the
+connector opens `tcp` resources only for `rw` grants (which require two
+approvers, P4). `ro` is enforced for `postgres` resources by the connector's
+read-only proxy (P5).
 
 ## Grant JWT
 

@@ -268,3 +268,4 @@ func TestConnectPingAndSink(t *testing.T) {
 type sinkFunc func(string, Message)
 
 func (f sinkFunc) FromConnector(siteID string, m Message) { f(siteID, m) }
+func (f sinkFunc) SiteGone(string)                        {}

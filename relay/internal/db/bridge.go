@@ -484,3 +484,49 @@ func (db *DB) SetSiteOffline(ctx context.Context, siteID string) error {
 		WHERE id = $1 AND status = 'online'`, siteID)
 	return err
 }
+
+// ─── Access path (P3) ────────────────────────────────────────────────────────
+
+// ResolveVendorResource finds "<customerSlug>/<name>" for a vendor: only if
+// the customer actively links the vendor and the resource is active. Every
+// other case is ErrNotFound, so a vendor can't probe unlinked customers.
+func (db *DB) ResolveVendorResource(ctx context.Context, vendorOrgID, customerSlug, name string) (*Resource, error) {
+	return scanResource(db.pool.QueryRow(ctx, `
+		SELECT r.id, r.site_id, r.org_id, r.name, r.kind, COALESCE(r.description, ''), r.auto_approve,
+		       r.limits, r.status, r.created_at
+		FROM resources r
+		JOIN orgs c  ON c.id = r.org_id AND c.slug = $2
+		JOIN links l ON l.customer_org_id = c.id AND l.vendor_org_id = $1 AND l.status = 'active'
+		WHERE r.name = $3 AND r.status = 'active'`, vendorOrgID, customerSlug, name))
+}
+
+// FindActiveGrant returns the approved, unexpired grant for agent × resource
+// (a specific one when grantID is set, else the one expiring last).
+func (db *DB) FindActiveGrant(ctx context.Context, vendorOrgID, agentID, resourceID, grantID string) (*Grant, error) {
+	return scanGrant(db.pool.QueryRow(ctx, `
+		SELECT `+grantCols+` FROM grants g
+		WHERE g.vendor_org_id = $1 AND g.agent_id = $2 AND g.resource_id = $3
+		  AND g.status = 'approved' AND g.expires_at > now()
+		  AND ($4 = '' OR g.id = $4)
+		ORDER BY g.expires_at DESC LIMIT 1`, vendorOrgID, agentID, resourceID, grantID))
+}
+
+// OpenAccessSession records a stream opened under a grant.
+func (db *DB) OpenAccessSession(ctx context.Context, sessionID, grantID string) error {
+	_, err := db.pool.Exec(ctx,
+		`INSERT INTO access_sessions (id, grant_id) VALUES ($1, $2)`, sessionID, grantID)
+	return mapErr(err)
+}
+
+// CloseAccessSession records a stream's end and byte counts. Idempotent: the
+// first close wins.
+func (db *DB) CloseAccessSession(ctx context.Context, sessionID, reason string, bytesUp, bytesDown int64) error {
+	_, err := db.pool.Exec(ctx, `
+		UPDATE access_sessions SET closed_at = now(), close_reason = $2, bytes_up = $3, bytes_down = $4
+		WHERE id = $1 AND closed_at IS NULL`, sessionID, reason, bytesUp, bytesDown)
+	return err
+}
+
+// NewAccessSessionID mints an access session ID (also the grant JWT jti and
+// the stream ID on the wire).
+func NewAccessSessionID() string { return newID("acs_") }

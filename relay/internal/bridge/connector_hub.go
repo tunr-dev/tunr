@@ -59,6 +59,9 @@ var connectorUpgrader = websocket.Upgrader{
 // the access bridge in here).
 type StreamSink interface {
 	FromConnector(siteID string, m Message)
+	// SiteGone: the site's connector session ended (or was replaced); every
+	// stream it carried is dead.
+	SiteGone(siteID string)
 }
 
 // ConnectorHub tracks live connector sessions.
@@ -274,6 +277,16 @@ func (h *ConnectorHub) attach(sess *connSession) {
 		default:
 		}
 		old.close("replaced by a newer connection")
+		h.siteGone(sess.siteID)
+	}
+}
+
+func (h *ConnectorHub) siteGone(siteID string) {
+	h.mu.Lock()
+	sink := h.sink
+	h.mu.Unlock()
+	if sink != nil {
+		sink.SiteGone(siteID)
 	}
 }
 
@@ -287,6 +300,7 @@ func (h *ConnectorHub) detach(sess *connSession) {
 	}
 	h.mu.Unlock()
 	if current {
+		h.siteGone(sess.siteID)
 		ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 		defer cancel()
 		if err := h.db.SetSiteOffline(ctx, sess.siteID); err != nil {
