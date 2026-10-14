@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tunr-dev/tunr/relay/internal/auth"
+	"github.com/tunr-dev/tunr/relay/internal/bridge"
 	"github.com/tunr-dev/tunr/relay/internal/db"
 	"github.com/tunr-dev/tunr/relay/internal/logger"
 	"github.com/tunr-dev/tunr/relay/internal/relay"
@@ -157,6 +158,15 @@ func main() {
 	density.RegisterRoutes(mux)
 	if density.Enabled() {
 		logger.Info("density telemetry enabled: /api/v1/density (bearer token)")
+	}
+
+	// ── Agent Bridge (TUNR_BRIDGE_ENABLED) ──
+	// Kapalıyken hiçbir route eklenmez; /bridge/* ve /api/v1/bridge/* eskisi
+	// gibi "/" tunnel proxy'sine düşer. Plan: docs/protocol/bridge.md.
+	bridgeSrv := bridge.New(bridge.ConfigFromEnv(os.Getenv))
+	bridgeSrv.RegisterRoutes(mux)
+	if bridgeSrv.Enabled() {
+		logger.Info("agent bridge enabled: /api/v1/bridge/*")
 	}
 
 	// ── Pivot Faz 0: control plane (/v1/apps) ──
