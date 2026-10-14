@@ -27,6 +27,9 @@ type Config struct {
 	PublicURL  string
 	Issuer     string // grant JWT iss; the relay domain
 	DevMode    bool   // allows an ephemeral signing key
+	ResendKey  string // RESEND_API_KEY: grant e-mails (unset → logged only)
+	MailFrom   string // RESEND_FROM
+	PortalURL  string // TUNR_BRIDGE_PORTAL_URL: deep links in e-mails
 }
 
 // ConfigFromEnv reads the bridge config through getenv (os.Getenv in main,
@@ -44,12 +47,19 @@ func ConfigFromEnv(getenv func(string) string) Config {
 	if public == "" {
 		public = "https://relay." + domain
 	}
+	portal := getenv("TUNR_BRIDGE_PORTAL_URL")
+	if portal == "" {
+		portal = "https://app." + domain + "/bridge"
+	}
 	return Config{
 		Enabled:    flag(EnvEnabled),
 		SigningKey: getenv(auth.EnvGrantSigningKey),
 		PublicURL:  strings.TrimRight(public, "/"),
 		Issuer:     domain,
 		DevMode:    flag("TUNR_DEV_MODE"),
+		ResendKey:  getenv("RESEND_API_KEY"),
+		MailFrom:   getenv("RESEND_FROM"),
+		PortalURL:  strings.TrimRight(portal, "/"),
 	}
 }
 
@@ -67,6 +77,7 @@ type Server struct {
 	signer *auth.GrantSigner
 	hub    *ConnectorHub
 	access *Access
+	notify *Notifier
 }
 
 // New builds the bridge server. With cfg.Enabled false it does nothing and
@@ -103,6 +114,7 @@ func New(cfg Config, deps Deps) (*Server, error) {
 	}
 	s.hub = NewConnectorHub(deps.DB, s.signer.KeyString())
 	s.access = NewAccess(deps.DB, deps.JWT, s.signer, s.hub)
+	s.notify = &Notifier{DB: deps.DB, ResendKey: cfg.ResendKey, From: cfg.MailFrom, PortalURL: cfg.PortalURL}
 	return s, nil
 }
 
@@ -132,6 +144,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /bridge/access", s.access.ServeAccess)
 	mux.HandleFunc("GET /bridge/access/check", s.access.ServeCheck)
 	s.registerAPI(mux)
+	s.registerGrants(mux)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

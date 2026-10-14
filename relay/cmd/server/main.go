@@ -168,6 +168,7 @@ func main() {
 		logger.Fatal("agent bridge: %v", err)
 	}
 	bridgeSrv.RegisterRoutes(mux)
+	bridgeSrv.StartGrantSweeper(ctx)
 	if bridgeSrv.Enabled() {
 		logger.Info("agent bridge enabled: /api/v1/bridge/* (relay key %s)", bridgeSrv.RelayKey())
 	}

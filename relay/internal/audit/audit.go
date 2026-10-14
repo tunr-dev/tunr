@@ -69,6 +69,17 @@ const (
 	ActionBridgeSiteDisconnected   = "bridge.site_disconnected"
 	ActionBridgeSessionOpened      = "bridge.session_opened"
 	ActionBridgeSessionClosed      = "bridge.session_closed"
+	ActionBridgeGrantRequested     = "bridge.grant_requested"
+	ActionBridgeGrantAutoApproved  = "bridge.grant_auto_approved"
+	ActionBridgeGrantFirstApproval = "bridge.grant_first_approval"
+	ActionBridgeGrantApproved      = "bridge.grant_approved"
+	ActionBridgeGrantDenied        = "bridge.grant_denied"
+	ActionBridgeGrantRevoked       = "bridge.grant_revoked"
+	ActionBridgeGrantExpired       = "bridge.grant_expired"
+	ActionBridgeKill               = "bridge.kill"
+	ActionBridgeQueryBlocked       = "bridge.query_blocked"
+	ActionBridgeWebhookCreated     = "bridge.webhook_created"
+	ActionBridgeWebhookDeleted     = "bridge.webhook_deleted"
 
 	// Admin eylemleri
 	ActionAdminUserBanned   = "admin.user_banned"

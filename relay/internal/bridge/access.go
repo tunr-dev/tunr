@@ -420,6 +420,22 @@ func (a *Access) SiteGone(siteID string) {
 	}
 }
 
+// KillSite closes every live stream of a site.
+func (a *Access) KillSite(siteID, reason string) int {
+	a.mu.Lock()
+	var hit []*agentStream
+	for _, st := range a.streams {
+		if st.siteID == siteID {
+			hit = append(hit, st)
+		}
+	}
+	a.mu.Unlock()
+	for _, st := range hit {
+		st.close(reason, false)
+	}
+	return len(hit)
+}
+
 // KillGrant closes every live stream of a grant (P4 revocation uses it).
 func (a *Access) KillGrant(grantID, reason string) int {
 	a.mu.Lock()
