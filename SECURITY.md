@@ -49,6 +49,11 @@ We accept reports on the following topics:
 - **Information disclosure** — token/secret leakage
 - **Tunnel hijacking** — taking over another user's tunnel
 - **DoS** — taking down the service with a single payload
+- **Agent Bridge** — anything that lets an agent reach a resource without an
+  approved grant, write through a read-only grant, see a database credential,
+  read another organization's data, or lets the relay read an end-to-end
+  encrypted stream; see [docs/bridge/security.md](docs/bridge/security.md)
+  for the guarantees we claim and their limits
 
 ## Out-of-Scope
 
