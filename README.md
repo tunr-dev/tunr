@@ -10,8 +10,8 @@
 
 <br/><br/>
 
-**Ship the apps your agent builds.**
-One command — or one MCP call — and the thing Claude Code just wrote stops living on `localhost`.
+**Connect AI agents to your customers' on-prem data.**
+Read-only, time-boxed, approved by the customer, and on the record — through one outbound-only connector.
 
 [![Release](https://img.shields.io/github/v/release/tunr-dev/tunr?color=7c3aed)](https://github.com/tunr-dev/tunr/releases)
 [![CLI: Apache 2.0](https://img.shields.io/badge/CLI-Apache--2.0-7c3aed.svg)](LICENSE)
@@ -24,44 +24,45 @@ One command — or one MCP call — and the thing Claude Code just wrote stops l
 
 </div>
 
-<p align="center">
-  <img src="assets/demo.gif" alt="An agent calls tunr_deploy; the build streams and the app goes live at https://standup.tunr.sh" width="800" />
-</p>
-
----
-
 ```bash
-$ tunr deploy --name sprint
-  ▲ Uploading 41 files, 210 KB
-  ▲ building (nixpacks auto-detect)
-  🚀 Live: https://sprint.tunr.sh
-     (sleeps when idle, wakes on request)
+# Customer IT, once — inside their network, outbound HTTPS only:
+$ tunr connect --relay https://bridge.tunr.sh --site istanbul-office --token tunr_site_… --relay-key ed25519:…
+$ tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo
+$ tunr connect pg-role --database logo --tables invoices,stock --resource erp-db > pg-role.sql   # for the DBA
+
+# The vendor's agent — anywhere:
+$ tunr access request acme/erp-db --ttl 2h --reason "Reconcile October invoices"
+  pending  grt_…  acme/erp-db (ro, 2h0m0s)            # the customer approves in the portal
+$ tunr access acme/erp-db --port 15432
+postgresql://agent:…@127.0.0.1:15432/db?sslmode=disable
+$ psql "$DSN" -c "update invoices set amount = 0"
+ERROR:  tunr bridge: UPDATE is not allowed on a read-only bridge
 ```
 
-Or don't type anything — tell your agent:
-
-> *"deploy this to tunr"*
-
-…and it calls `tunr_deploy` over MCP and hands you back the URL.
+Or let the agent do it: `tunr_list_resources`, `tunr_request_access`,
+`tunr_open_access` are MCP tools.
 
 ---
 
 ## Why
 
-Coding agents produce a lot of small software: the internal dashboard, the
-one-off scraper, the tool that does exactly one annoying thing for your team.
-Almost all of it dies on `localhost`, because the gap between "it works on my
-machine" and "my colleague can open it" is still an afternoon of Dockerfiles,
-DNS and IAM.
+AI vendors increasingly sell agents that need data living inside their
+customers' networks — on-prem ERPs, ledgers, file servers. Today each vendor
+writes its own on-prem agent or asks for a VPN, and every deal waits weeks in
+a security review, because the customer can't see or limit what the agent
+touches.
 
-tunr closes that gap to one command. The app builds with Nixpacks (no
-Dockerfile), gets an HTTPS URL, sleeps when nobody's using it and wakes on the
-next request — so hosting a dozen barely-used internal tools costs about what
-hosting one does.
+tunr Bridge is the standard way across. The customer installs one connector
+that only connects out, exposes named resources, and approves each agent,
+resource and time window — with a reason they can read. The agent never sees a
+database password; databases are read-only in three layers; the stream is
+end-to-end encrypted to the customer's connector; every query lands in the
+customer's audit log; one click cuts everything. Once a customer has the
+connector for one vendor, the next vendor is a link and an approval away.
 
-The 3-second tunnel tunr started as is still here, still free — and it's the
-safest way to demo work-in-progress to a client: read-only mode, crash
-protection and a feedback button, one flag each ([Client demos](#client-demos--for-freelancers-and-vibecoders)).
+tunr also hosts the agents themselves (private, woken by cron or signed
+webhooks, with their identity issued automatically), still deploys the small
+apps agents build, and still has the free 3-second tunnel it started as.
 
 ---
 
@@ -93,7 +94,38 @@ npm install @tunr/cli     # Node.js
 
 ---
 
+## Agent Bridge
+
+```
+ vendor's agent ──► tunr access ──(TLS 1.3, pinned)──────────────► connector ──► customer's database
+ (anywhere)        127.0.0.1:port      ▲ relay sees ciphertext ▲     (outbound only)    (read-only role)
+```
+
+| | |
+|---|---|
+| **Connector** | `tunr connect` runs inside the customer's network as a service, dials out only, and serves named resources. Their addresses never leave the machine. |
+| **Grants** | Agent × resource × mode × duration, requested with a reason, approved by the customer (read-write needs two different approvers). They expire on their own. |
+| **Read-only databases** | A `SELECT`-only role, read-only sessions and a statement classifier; writes fail with SQLSTATE 42501. Row, byte and rate limits per grant. |
+| **No credentials for agents** | The connector logs in itself; the agent's DSN only unlocks its own local port. |
+| **End-to-end TLS** | Between `tunr access` and the connector, pinned to the connector's certificate. |
+| **Audit** | Every grant decision, session and query summary, exportable as CSV. |
+| **Cut access** | Revoke closes live connections in milliseconds; the site kill switch revokes everything. |
+| **Hosted agents** | `tunr agent deploy` runs an agent on tunr, private, woken by cron or signed webhooks, with its identity issued automatically and a `/data` volume. |
+| **Portal** | `/portal/` on the relay: approvals, sites, vendors, activity, agents, members, settings. |
+
+What it guarantees, how, and what it doesn't: **[docs/bridge/security.md](docs/bridge/security.md)**.
+Getting started: [customer](docs/bridge/quickstart-customer.md) · [vendor](docs/bridge/quickstart-vendor.md) · protocol: [docs/protocol/bridge.md](docs/protocol/bridge.md).
+
+> **Status: preview.** End-to-end tested (two docker suites in CI), not yet
+> in production use. Postgres and raw TCP resources today; MySQL/MSSQL later.
+
+---
+
 ## Cloud — deploy & host
+
+<p align="center">
+  <img src="assets/demo.gif" alt="An agent calls tunr_deploy; the build streams and the app goes live at https://standup.tunr.sh" width="800" />
+</p>
 
 ```bash
 tunr login                        # magic-link, token goes to your OS keychain
@@ -506,6 +538,7 @@ it with `--relay https://tunnel.yourcompany.com` or `TUNR_RELAY_URL`. See
 
 ## Security
 
+- Agent Bridge: default deny, read-only databases in three layers, no credentials for agents, end-to-end TLS to the connector, per-org isolation, full audit — details and limits in [docs/bridge/security.md](docs/bridge/security.md)
 - Auth tokens live in the **OS keychain**, never in a dotfile
 - All relay traffic over **TLS 1.3**. HTTP tunnels terminate TLS at the relay, like any hosted tunnel; self-host the relay (`--relay`) if that matters to you
 - Cloud apps run under **gVisor**, not bare containers
@@ -524,6 +557,10 @@ means there is no code yet.
 
 | | Status |
 |---|---|
+| **Agent Bridge**: connector, grants, read-only Postgres proxy, end-to-end TLS, portal, MCP tools | 🚧 Preview |
+| **Hosted agents** (`tunr agent deploy`, cron/webhook triggers, `/data` volume) | 🚧 Preview |
+| Bridge: MySQL / MSSQL proxies, HTTP resources, white-label connector for vendors | 📋 Planned |
+| Bridge: volume size quotas, egress blocklist for hosted agents | 📋 Planned |
 | HTTP/WS, TCP, UDP, TLS tunnels | ✅ Stable |
 | Demo features (freeze, demo, widget, auto-login) | ✅ Stable |
 | Access control (password, token, IP, TTL) | ✅ Stable |
