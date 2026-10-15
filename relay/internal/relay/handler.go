@@ -502,15 +502,9 @@ func decodeWireBody(bodyB64, body string) ([]byte, error) {
 // ServeBrowserTCP — browser WebSocket → TCP tunnel proxy.
 // Browsers connect to wss://tun.tcp.sh/tunnel/tcp to forward TCP traffic.
 func (h *Handler) ServeBrowserTCP(w http.ResponseWriter, r *http.Request) {
-	// Upgrade to WebSocket
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		logger.Warn("TCP WS upgrade başarısız: %v", err)
-		return
-	}
-	defer conn.Close()
-
-	conn.SetReadLimit(64 << 20)
+	// Every check happens BEFORE the upgrade: once the connection is hijacked
+	// an http.Error can no longer reach the client, which then sees a
+	// successful handshake followed by a dropped socket instead of a 4xx.
 
 	// Extract subdomain from query or subdomain
 	subdomain := r.URL.Query().Get("subdomain")
@@ -537,6 +531,14 @@ func (h *Handler) ServeBrowserTCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "this is not a TCP tunnel", http.StatusBadRequest)
 		return
 	}
+
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		logger.Warn("TCP WS upgrade başarısız: %v", err)
+		return
+	}
+	defer conn.Close()
+	conn.SetReadLimit(64 << 20)
 
 	streamID := uuid.New().String()[:8]
 	entry.StoreBrowserTCP(streamID, conn)
