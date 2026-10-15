@@ -227,7 +227,7 @@ func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 		}
 		_ = tc.SetDeadline(time.Time{})
 		conn = tc
-		c.logf("stream %s open (grant %s, end-to-end encrypted)", ready.StreamID, ready.GrantID)
+		c.logf("stream %s open (grant %s, end-to-end encrypted to site certificate sha256 %s)", ready.StreamID, ready.GrantID, ready.SiteCertSHA256)
 	case c.RequireE2E:
 		return errors.New("the customer's connector does not support end-to-end encryption (update it) and --require-e2e is set")
 	default:
