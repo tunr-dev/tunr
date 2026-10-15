@@ -1,0 +1,35 @@
+# Hosted-agent add-on for the bridge e2e (hosted.sh). Layered on
+# docker-compose.yml: adds a runner that drives the host Docker daemon (runc
+# instead of gVisor) and puts the relay on the apps network.
+services:
+  runner:
+    image: tunr-bridge-e2e-runner:latest
+    build:
+      context: ../../..
+      dockerfile: scripts/e2e/bridge/Dockerfile.runner
+    environment:
+      RUNNER_SECRET: e2e-runner-secret
+      TUNR_DOCKER_RUNTIME: runc
+      TUNR_AGENT_BINARY: ${TUNR_AGENT_BINARY:?set by hosted.sh}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-work:/work
+    networks: [relay-net, tunr-apps]
+
+  relay:
+    environment:
+      RUNNER_URL: http://runner:9091
+      RUNNER_SECRET: e2e-runner-secret
+      TUNR_IDLE_SLEEP: 8s
+    networks:
+      relay-net: {}
+      tunr-apps:
+        aliases: [relay]
+
+volumes:
+  runner-work: {}
+
+networks:
+  tunr-apps:
+    external: true
+    name: tunr-apps

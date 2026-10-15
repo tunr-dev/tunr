@@ -149,6 +149,11 @@ func streamDeploy(body io.Reader) error {
 			}
 			fmt.Printf("  ▲ %s%s\n", str(ev["event"]), d)
 		case "live":
+			if ev["agent_id"] != nil {
+				fmt.Printf("\n  🤖 Agent %s is running on tunr (%s)\n     Private: it only receives signed triggers. Add one with `tunr agent trigger add`.\n",
+					str(ev["app"]), str(ev["agent_id"]))
+				return nil
+			}
 			fmt.Printf("\n  🚀 Live: %s\n     (sleeps when idle, wakes on request)\n", str(ev["url"]))
 			return nil
 		case "failed":

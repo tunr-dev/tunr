@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -35,11 +40,14 @@ func humanToken() (string, error) {
 	return t, nil
 }
 
-func agentToken() (string, error) {
-	if t := os.Getenv("TUNR_AGENT_TOKEN"); t != "" {
-		return t, nil
+// agentTokens: TUNR_AGENT_TOKEN, or — inside a hosted agent — a source that
+// exchanges TUNR_AGENT_BOOTSTRAP for hourly tokens.
+func agentTokens() (*api.TokenSource, error) {
+	ts := &api.TokenSource{Relay: relayURL(), Static: os.Getenv("TUNR_AGENT_TOKEN"), Bootstrap: os.Getenv("TUNR_AGENT_BOOTSTRAP")}
+	if ts.Static == "" && ts.Bootstrap == "" {
+		return nil, errors.New("no agent token: set TUNR_AGENT_TOKEN (create one with `tunr agent token`)")
 	}
-	return "", errors.New("no agent token: set TUNR_AGENT_TOKEN (create one with `tunr agent token`)")
+	return ts, nil
 }
 
 func humanAPI() (*api.Client, error) {
@@ -51,11 +59,11 @@ func humanAPI() (*api.Client, error) {
 }
 
 func agentAPI() (*api.Client, error) {
-	t, err := agentToken()
+	ts, err := agentTokens()
 	if err != nil {
 		return nil, err
 	}
-	return &api.Client{Relay: relayURL(), Token: t}, nil
+	return &api.Client{Relay: relayURL(), Tokens: ts}, nil
 }
 
 func requireOrg(org string) error {
@@ -162,7 +170,205 @@ func newAgentCmd() *cobra.Command {
 	}
 	token.Flags().StringVar(&ttl, "ttl", "24h", "Token lifetime (1m–24h)")
 
-	cmd.AddCommand(create, list, token)
+	cmd.AddCommand(create, list, token, newAgentDeployCmd(&org), newAgentTriggerCmd(&org))
+	return cmd
+}
+
+// tunr agent deploy — run an agent on tunr.
+func newAgentDeployCmd(org *string) *cobra.Command {
+	var app string
+	var port, volume int
+	var envs []string
+	cmd := &cobra.Command{
+		Use:   "deploy AGENT [dir]",
+		Short: "Run an agent on tunr (builds the directory like tunr deploy)",
+		Long: `Build the directory on tunr and run it as AGENT. The agent gets its identity
+automatically (TUNR_AGENT_BOOTSTRAP — the bundled tunr CLI and MCP tools use
+it), a /data volume with --volume, and is private: it only receives signed
+triggers (tunr agent trigger add). It must listen on $PORT and handle POST
+on its trigger path (default /run).`,
+		Example: `  tunr agent deploy invoice-reconciler --org finbot --volume 256
+  tunr agent trigger add invoice-reconciler --org finbot --cron "0 7 * * *"`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireOrg(*org); err != nil {
+				return err
+			}
+			c, err := humanAPI()
+			if err != nil {
+				return err
+			}
+			id, err := agentIDByName(cmd.Context(), c, *org, args[0])
+			if err != nil {
+				return err
+			}
+			dir := "."
+			if len(args) == 2 {
+				dir = args[1]
+			}
+			absDir, err := filepath.Abs(dir)
+			if err != nil {
+				return err
+			}
+			envMap := map[string]string{}
+			for _, e := range envs {
+				if k, v, ok := strings.Cut(e, "="); ok {
+					envMap[strings.TrimSpace(k)] = v
+				}
+			}
+			if app == "" {
+				app = args[0]
+			}
+			metaJSON, _ := json.Marshal(map[string]any{"name": app, "port": port, "env": envMap, "volume_mb": volume})
+			fmt.Printf("  ▲ Packing %s…\n", absDir)
+			var tarBuf bytes.Buffer
+			count, err := tarDir(absDir, &tarBuf)
+			if err != nil {
+				return fmt.Errorf("packing failed: %w", err)
+			}
+			if tarBuf.Len() > 50<<20 {
+				return fmt.Errorf("upload is %s (>50MB)", human(tarBuf.Len()))
+			}
+			fmt.Printf("  ▲ Uploading %d files, %s\n", count, human(tarBuf.Len()))
+			var body bytes.Buffer
+			mw := multipart.NewWriter(&body)
+			_ = mw.WriteField("meta", string(metaJSON))
+			fw, _ := mw.CreateFormFile("source", "source.tar.gz")
+			if _, err := io.Copy(fw, &tarBuf); err != nil {
+				return err
+			}
+			_ = mw.Close()
+			req, err := http.NewRequestWithContext(cmd.Context(), http.MethodPost,
+				relayURL()+"/api/v1/bridge/orgs/"+*org+"/agents/"+id+"/deploy", &body)
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Authorization", "Bearer "+c.Token)
+			req.Header.Set("Content-Type", mw.FormDataContentType())
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+				return fmt.Errorf("deploy failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+			}
+			return streamDeploy(resp.Body)
+		},
+	}
+	cmd.Flags().StringVar(&app, "app", "", "App name (default: the agent name)")
+	cmd.Flags().IntVar(&port, "port", 0, "Port the agent listens on (default 8080)")
+	cmd.Flags().IntVar(&volume, "volume", 0, "Persistent /data volume in MB (0 = none)")
+	cmd.Flags().StringArrayVar(&envs, "env", nil, "Environment variable KEY=VALUE (repeatable; TUNR_* are reserved)")
+	return cmd
+}
+
+// tunr agent trigger add|list|remove
+func newAgentTriggerCmd(org *string) *cobra.Command {
+	cmd := &cobra.Command{Use: "trigger", Short: "Cron and webhook triggers for a hosted agent"}
+	var cron, webhook, path, name string
+	add := &cobra.Command{
+		Use: "add AGENT", Short: "Add a cron (UTC) or webhook trigger", Args: cobra.ExactArgs(1),
+		Example: `  tunr agent trigger add invoice-reconciler --org finbot --cron "0 7 * * *"
+  tunr agent trigger add invoice-reconciler --org finbot --webhook new-invoice --path /hooks/invoice`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireOrg(*org); err != nil {
+				return err
+			}
+			if (cron == "") == (webhook == "") {
+				return errors.New("give exactly one of --cron or --webhook")
+			}
+			c, err := humanAPI()
+			if err != nil {
+				return err
+			}
+			id, err := agentIDByName(cmd.Context(), c, *org, args[0])
+			if err != nil {
+				return err
+			}
+			in := map[string]string{"path": path}
+			if cron != "" {
+				in["kind"], in["spec"], in["name"] = "cron", cron, name
+			} else {
+				in["kind"], in["name"] = "webhook", webhook
+			}
+			var out struct {
+				Trigger                struct{ ID, Kind, Name, Spec, Path string }
+				URL, Secret, Signature string
+			}
+			if err := c.Do(cmd.Context(), http.MethodPost, "/orgs/"+*org+"/agents/"+id+"/triggers", in, &out); err != nil {
+				return err
+			}
+			if out.Trigger.Kind == "cron" {
+				term.Green.Println(fmt.Sprintf("  ✓ cron %q (UTC) → POST %s", out.Trigger.Spec, out.Trigger.Path))
+				return nil
+			}
+			term.Green.Println(fmt.Sprintf("  ✓ webhook %s → POST %s", out.Trigger.Name, out.Trigger.Path))
+			fmt.Println("  URL:    " + out.URL)
+			fmt.Println("  Secret: " + out.Secret + "   (shown once)")
+			term.Dim.Println("  Callers sign: " + out.Signature)
+			return nil
+		},
+	}
+	add.Flags().StringVar(&cron, "cron", "", `5-field cron in UTC, e.g. "0 7 * * *"`)
+	add.Flags().StringVar(&webhook, "webhook", "", "Webhook name (URL segment)")
+	add.Flags().StringVar(&path, "path", "/run", "Path the agent receives the trigger on")
+	add.Flags().StringVar(&name, "name", "schedule", "Cron trigger name (adding the same name again replaces its schedule)")
+
+	list := &cobra.Command{
+		Use: "list AGENT", Short: "List triggers", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireOrg(*org); err != nil {
+				return err
+			}
+			c, err := humanAPI()
+			if err != nil {
+				return err
+			}
+			id, err := agentIDByName(cmd.Context(), c, *org, args[0])
+			if err != nil {
+				return err
+			}
+			var out struct {
+				Triggers []struct {
+					ID, Kind, Name, Spec, Path string
+					LastFired                  *time.Time `json:"last_fired"`
+				}
+			}
+			if err := c.Do(cmd.Context(), http.MethodGet, "/orgs/"+*org+"/agents/"+id+"/triggers", nil, &out); err != nil {
+				return err
+			}
+			tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+			fmt.Fprintln(tw, "ID\tKIND\tNAME\tSCHEDULE\tPATH\tLAST FIRED")
+			for _, t := range out.Triggers {
+				last := "-"
+				if t.LastFired != nil {
+					last = t.LastFired.Local().Format(time.RFC822)
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Kind, t.Name, t.Spec, t.Path, last)
+			}
+			return tw.Flush()
+		},
+	}
+	remove := &cobra.Command{
+		Use: "remove TRIGGER_ID", Short: "Remove a trigger", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireOrg(*org); err != nil {
+				return err
+			}
+			c, err := humanAPI()
+			if err != nil {
+				return err
+			}
+			if err := c.Do(cmd.Context(), http.MethodDelete, "/orgs/"+*org+"/triggers/"+args[0], nil, nil); err != nil {
+				return err
+			}
+			term.Green.Println("  ✓ trigger removed")
+			return nil
+		},
+	}
+	cmd.AddCommand(add, list, remove)
 	return cmd
 }
 

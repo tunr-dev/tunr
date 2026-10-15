@@ -59,10 +59,13 @@ type Check struct {
 
 // Client opens streams for one resource.
 type Client struct {
-	Relay    string // https://… (ws scheme derived)
-	Token    string // agent token; never logged
-	Resource string // "<customer>/<name>"
-	GrantID  string // optional
+	Relay string // https://… (ws scheme derived)
+	Token string // agent token; never logged
+	// TokenFunc, when set, supplies the token per request (hosted agents renew
+	// theirs hourly); it wins over Token.
+	TokenFunc func(ctx context.Context) (string, error)
+	Resource  string // "<customer>/<name>"
+	GrantID   string // optional
 	// ClientSecret is the password local Postgres clients must present (the
 	// DSN's password). Only its SHA-256 is sent; the connector's pgproxy
 	// checks it, so other local users can't use this port.
@@ -75,6 +78,13 @@ func (c *Client) logf(f string, a ...any) {
 	if c.Logf != nil {
 		c.Logf(f, a...)
 	}
+}
+
+func (c *Client) token(ctx context.Context) (string, error) {
+	if c.TokenFunc != nil {
+		return c.TokenFunc(ctx)
+	}
+	return c.Token, nil
 }
 
 func (c *Client) endpoint(path string, ws bool) string {
@@ -104,7 +114,11 @@ func (c *Client) Check(ctx context.Context) (*Check, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	tok, err := c.token(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
 	hc := c.HTTP
 	if hc == nil {
 		hc = &http.Client{Timeout: 15 * time.Second}
@@ -158,7 +172,11 @@ func (c *Client) Serve(ctx context.Context, l net.Listener) error {
 // Bridge carries one local connection over one relay stream.
 func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 	defer local.Close()
-	hdr := http.Header{"Authorization": {"Bearer " + c.Token}}
+	tok, err := c.token(ctx)
+	if err != nil {
+		return err
+	}
+	hdr := http.Header{"Authorization": {"Bearer " + tok}}
 	if c.ClientSecret != "" {
 		sum := sha256.Sum256([]byte(c.ClientSecret))
 		hdr.Set("X-Tunr-Client-Secret-Sha256", hex.EncodeToString(sum[:]))

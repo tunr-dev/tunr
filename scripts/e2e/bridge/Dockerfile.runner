@@ -1,0 +1,13 @@
+# e2e-only runner image: multi-arch, docker CLI from Alpine, no Nixpacks
+# (the e2e agent ships its own Dockerfile). Build context: repository root.
+FROM golang:1.27-alpine AS build
+WORKDIR /src/relay
+COPY relay/go.mod relay/go.sum ./
+RUN go mod download
+COPY relay/ ./
+RUN CGO_ENABLED=0 go build -trimpath -o /runner ./cmd/runner
+
+FROM alpine:3.20
+RUN apk add --no-cache docker-cli docker-cli-buildx ca-certificates
+COPY --from=build /runner /usr/local/bin/tunr-runner
+ENTRYPOINT ["tunr-runner"]

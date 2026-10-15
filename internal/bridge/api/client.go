@@ -26,9 +26,10 @@ func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message)
 
 // Client calls the bridge API.
 type Client struct {
-	Relay string
-	Token string
-	HTTP  *http.Client
+	Relay  string
+	Token  string
+	Tokens *TokenSource // when set, used instead of Token (hosted agents)
+	HTTP   *http.Client
 }
 
 // Do sends a request; body and out may be nil.
@@ -45,7 +46,15 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	tok := c.Token
+	if c.Tokens != nil {
+		t, err := c.Tokens.Token(ctx)
+		if err != nil {
+			return err
+		}
+		tok = t
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

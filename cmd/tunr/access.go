@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/tunr-dev/tunr/internal/bridge/access"
+	"github.com/tunr-dev/tunr/internal/bridge/api"
 	"github.com/tunr-dev/tunr/internal/bridge/connector"
 	"github.com/tunr-dev/tunr/internal/logger"
 	"github.com/tunr-dev/tunr/internal/term"
@@ -33,29 +34,30 @@ func newAccessCmd() *cobra.Command {
 		Use:   "access CUSTOMER/RESOURCE",
 		Short: "Open a local port to a customer resource you have a grant for",
 		Long: `Open a port on 127.0.0.1 that reaches a customer's resource through the
-Agent Bridge. Needs an agent token (TUNR_AGENT_TOKEN, or --token-stdin) and an
+Agent Bridge. Needs an agent token (TUNR_AGENT_TOKEN, --token-stdin, or — in a
+hosted agent — TUNR_AGENT_BOOTSTRAP, set automatically) and an
 approved grant. The resource's real address never reaches this machine.`,
 		Example: `  export TUNR_AGENT_TOKEN=…
   tunr access acme/nas --port 14455
   tunr access acme/erp-db --port 15432   # prints a read-only postgresql:// DSN`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			token := os.Getenv("TUNR_AGENT_TOKEN")
+			ts, err := agentTokens()
 			if tokenStdin {
-				t, err := readLine(os.Stdin)
-				if err != nil {
-					return err
+				t, rerr := readLine(os.Stdin)
+				if rerr != nil {
+					return rerr
 				}
-				token = t
+				ts, err = &api.TokenSource{Relay: relayURL(), Static: t}, nil
 			}
-			if token == "" {
-				return errors.New("no agent token: set TUNR_AGENT_TOKEN or use --token-stdin")
+			if err != nil {
+				return err
 			}
 			relay := relayURL()
 			if err := connector.ValidateRelay(relay); err != nil {
 				return err
 			}
-			cl := &access.Client{Relay: relay, Token: token, Resource: args[0], GrantID: grantID,
+			cl := &access.Client{Relay: relay, TokenFunc: ts.Token, Resource: args[0], GrantID: grantID,
 				ClientSecret: access.NewClientSecret(), Logf: func(f string, a ...any) { logger.Info(f, a...) }}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)

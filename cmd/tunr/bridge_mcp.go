@@ -18,9 +18,10 @@ import (
 // `tunr access` listeners living inside the MCP server process.
 
 type bridgeMCP struct {
-	relay, token string
-	api          *api.Client
-	root         context.Context
+	relay  string
+	tokens *api.TokenSource
+	api    *api.Client
+	root   context.Context
 
 	mu   sync.Mutex
 	open map[string]openListener
@@ -31,11 +32,11 @@ type openListener struct {
 	info   mcp.OpenedAccess
 }
 
-func newBridgeMCP(ctx context.Context, relay, token string) (*bridgeMCP, error) {
+func newBridgeMCP(ctx context.Context, relay string, tokens *api.TokenSource) (*bridgeMCP, error) {
 	if err := connector.ValidateRelay(relay); err != nil {
 		return nil, err
 	}
-	return &bridgeMCP{relay: relay, token: token, api: &api.Client{Relay: relay, Token: token}, root: ctx,
+	return &bridgeMCP{relay: relay, tokens: tokens, api: &api.Client{Relay: relay, Tokens: tokens}, root: ctx,
 		open: map[string]openListener{}}, nil
 }
 
@@ -81,7 +82,7 @@ func (b *bridgeMCP) OpenAccess(ctx context.Context, resource string, port int) (
 	}
 	b.mu.Unlock()
 
-	cl := &access.Client{Relay: b.relay, Token: b.token, Resource: resource, ClientSecret: access.NewClientSecret(),
+	cl := &access.Client{Relay: b.relay, TokenFunc: b.tokens.Token, Resource: resource, ClientSecret: access.NewClientSecret(),
 		Logf: func(f string, a ...any) { logger.Info(f, a...) }}
 	chk, err := cl.Check(ctx)
 	if err != nil {

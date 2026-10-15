@@ -226,6 +226,11 @@ func (s *Server) deployAgent(w http.ResponseWriter, r *http.Request) {
 	env["TUNR_TRIGGER_SECRET"] = triggerSecret
 	env["TUNR_AGENT_ID"] = agent.ID
 	env["TUNR_AGENT_NAME"] = agent.Name
+	if strings.HasPrefix(s.cfg.PublicURL, "http://") {
+		// A relay without TLS (development, some self-hosting): the agent
+		// reaches it on the internal network, so let the CLI accept it.
+		env["TUNR_BRIDGE_INSECURE_RELAY"] = "1"
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
