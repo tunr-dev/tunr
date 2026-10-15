@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -350,6 +351,8 @@ func TestCloudUpstream_CrawlerStartsClockOnUnseenApp(t *testing.T) {
 // clock when it ends.
 func TestCloudUpstream_LongRequestPinsApp(t *testing.T) {
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	started := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(started)
@@ -357,6 +360,7 @@ func TestCloudUpstream_LongRequestPinsApp(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
+	defer unblock() // runs before Close: a failed assertion must not leave the handler blocked
 	target, _ := url.Parse(upstream.URL)
 	up := NewCloudUpstream("a_slow", target, []byte("s"),
 		wakerFunc(func(context.Context, string) (string, error) { return "", nil }), nil)
@@ -373,7 +377,7 @@ func TestCloudUpstream_LongRequestPinsApp(t *testing.T) {
 	}
 	before := up.LastSeen()
 	time.Sleep(20 * time.Millisecond)
-	close(release)
+	unblock()
 	<-done
 	if up.Pinned() {
 		t.Fatal("app still pinned after the request ended")
