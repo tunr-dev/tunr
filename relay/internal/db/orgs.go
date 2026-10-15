@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -370,4 +371,46 @@ func (db *DB) AuditOrg(ctx context.Context, orgID, userID, action string, detail
 // (audit assertions). Not for production code paths.
 func (db *DB) QueryRowForTest(ctx context.Context, sql string, args ...any) pgx.Row {
 	return db.pool.QueryRow(ctx, sql, args...)
+}
+
+// ─── Portal login (shares magic_tokens with the dashboard) ──────────────────
+
+// SavePortalMagicToken stores sha256(token) for email, replacing any older
+// link for that address — the same scheme as the dashboard
+// (landing/app/api/auth/send-magic-link), so the two never disagree.
+func (db *DB) SavePortalMagicToken(ctx context.Context, email, tokenHash string, expiresAt time.Time) error {
+	_, err := db.pool.Exec(ctx, `DELETE FROM magic_tokens WHERE email = $1 OR expires_at < now()`, email)
+	if err != nil {
+		return err
+	}
+	_, err = db.pool.Exec(ctx,
+		`INSERT INTO magic_tokens (email, token_hash, expires_at) VALUES ($1, $2, $3)`, email, tokenHash, expiresAt)
+	return err
+}
+
+// ConsumePortalMagicToken deletes a matching unexpired link (single use) and
+// reports whether there was one.
+func (db *DB) ConsumePortalMagicToken(ctx context.Context, email, tokenHash string) (bool, error) {
+	tag, err := db.pool.Exec(ctx,
+		`DELETE FROM magic_tokens WHERE email = $1 AND token_hash = $2 AND expires_at > now()`, email, tokenHash)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// UpdateOrgSettings merges known keys into orgs.settings.
+func (db *DB) UpdateOrgSettings(ctx context.Context, orgID string, patch map[string]any) (map[string]any, error) {
+	b, _ := json.Marshal(patch)
+	var out map[string]any
+	err := db.pool.QueryRow(ctx,
+		`UPDATE orgs SET settings = settings || $2::jsonb WHERE id = $1 RETURNING settings`, orgID, string(b)).Scan(&out)
+	return out, mapErr(err)
+}
+
+// OrgSettings returns orgs.settings.
+func (db *DB) OrgSettings(ctx context.Context, orgID string) (map[string]any, error) {
+	var out map[string]any
+	err := db.pool.QueryRow(ctx, `SELECT settings FROM orgs WHERE id = $1`, orgID).Scan(&out)
+	return out, mapErr(err)
 }

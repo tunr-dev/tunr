@@ -142,9 +142,15 @@ func (n *Notifier) mailApprovers(ctx context.Context, event string, g *db.GrantV
 		return
 	}
 	subject, text, htmlBody := GrantEmail(event, g, n.PortalURL)
+	n.SendMail(ctx, to, subject, text, htmlBody)
+}
+
+// SendMail sends one message through Resend; without RESEND_API_KEY it only
+// logs the subject (never the body: it can carry a login link).
+func (n *Notifier) SendMail(ctx context.Context, to []string, subject, text, htmlBody string) bool {
 	if n.ResendKey == "" {
-		logger.Info("bridge notify (no RESEND_API_KEY): would mail %d approver(s): %s", len(to), subject)
-		return
+		logger.Info("bridge mail (no RESEND_API_KEY): would mail %d recipient(s): %s", len(to), subject)
+		return false
 	}
 	from := n.From
 	if from == "" {
@@ -160,15 +166,16 @@ func (n *Notifier) mailApprovers(ctx context.Context, event string, g *db.GrantV
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := n.client().Do(req)
 	if err != nil {
-		logger.Warn("bridge notify: resend: %v", err)
-		return
+		logger.Warn("bridge mail: resend: %v", err)
+		return false
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		logger.Warn("bridge notify: resend HTTP %d", resp.StatusCode)
-		return
+		logger.Warn("bridge mail: resend HTTP %d", resp.StatusCode)
+		return false
 	}
 	if n.OnDelivered != nil {
 		n.OnDelivered("email", fmt.Sprint(to))
 	}
+	return true
 }

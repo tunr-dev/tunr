@@ -78,6 +78,7 @@ type Server struct {
 	hub    *ConnectorHub
 	access *Access
 	notify *Notifier
+	logins *loginLimiter
 }
 
 // New builds the bridge server. With cfg.Enabled false it does nothing and
@@ -145,6 +146,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /bridge/access/check", s.access.ServeCheck)
 	s.registerAPI(mux)
 	s.registerGrants(mux)
+	s.registerPortal(mux)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
