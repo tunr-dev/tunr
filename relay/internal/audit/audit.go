@@ -80,6 +80,9 @@ const (
 	ActionBridgeQueryBlocked       = "bridge.query_blocked"
 	ActionBridgeWebhookCreated     = "bridge.webhook_created"
 	ActionBridgeWebhookDeleted     = "bridge.webhook_deleted"
+	ActionBridgeAgentDeployed      = "bridge.agent_deployed"
+	ActionBridgeTriggerChanged     = "bridge.trigger_changed"
+	ActionBridgeTriggerFired       = "bridge.trigger_fired"
 
 	// Admin eylemleri
 	ActionAdminUserBanned   = "admin.user_banned"

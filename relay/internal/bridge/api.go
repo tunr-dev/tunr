@@ -33,7 +33,7 @@ type ctxKey int
 
 const ctxUser ctxKey = iota
 
-type user struct{ ID, Email string }
+type user struct{ ID, Email, Plan string }
 
 func (s *Server) registerAPI(mux *http.ServeMux) {
 	h := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, s.humanAuth(fn)) }
@@ -84,7 +84,7 @@ func (s *Server) humanAuth(next http.HandlerFunc) http.Handler {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-		ctx := context.WithValue(r.Context(), ctxUser, user{ID: claims.UserID, Email: claims.Email})
+		ctx := context.WithValue(r.Context(), ctxUser, user{ID: claims.UserID, Email: claims.Email, Plan: claims.Plan})
 		next(w, r.WithContext(ctx))
 	})
 }

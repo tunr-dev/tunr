@@ -15,7 +15,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -371,7 +373,6 @@ func (c *ControlPlane) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plan := resolveUserPlan(r.Context(), c.db, userID, claimPlan)
-	quota := quotaFor(plan)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -417,30 +418,74 @@ func (c *ControlPlane) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer src.Close()
 
-	ctx := r.Context()
-
-	// Plan quotas. Redeploying an app you already own never counts as a new app.
-	if existing, found, err := c.db.GetAppByName(ctx, meta.Name); err == nil && (!found || existing.UserID != userID) {
-		if msg, over := c.appQuotaExceeded(ctx, userID, plan); over {
-			fail(msg)
-			return
-		}
-	}
-	if n, err := c.db.CountDeploysSince(ctx, userID, 24); err == nil && n >= quota.DeploysPerDay {
-		fail(deployQuotaMsg(plan, quota))
-		return
-	}
-
-	app, _, err := c.db.GetOrCreateAppByName(ctx, userID, meta.Name, newAppID(), newEdgeSecret(), meta.InternalPort)
+	app, seq, err := c.deploy(r.Context(), userID, plan, deployRequest{
+		Name: meta.Name, InternalPort: meta.InternalPort, Env: meta.Env, Kind: "web",
+	}, src, func(v map[string]any) { send(v) })
 	if err != nil {
 		fail(err.Error())
 		return
 	}
+	send(map[string]any{
+		"event": "live",
+		"url":   fmt.Sprintf("https://%s.%s", app.Name, c.domain),
+		"seq":   seq,
+	})
+}
+
+// deployRequest is one deploy, from the CLI (/v1/deploy) or the Agent Bridge.
+type deployRequest struct {
+	Name         string
+	InternalPort int
+	Env          map[string]string
+	Kind         string // "web" | "agent"
+	VolumeMB     int
+}
+
+// deploy runs the shared pipeline: quotas → app row → runner build → route.
+func (c *ControlPlane) deploy(ctx context.Context, userID, plan string, meta deployRequest, src io.Reader, send func(map[string]any)) (*db.App, int, error) {
+	quota := quotaFor(plan)
+	// Plan quotas. Redeploying an app you already own never counts as a new app.
+	existing, found, err := c.db.GetAppByName(ctx, meta.Name)
+	if err == nil && (!found || existing.UserID != userID) {
+		if msg, over := c.appQuotaExceeded(ctx, userID, plan); over {
+			return nil, 0, errors.New(msg)
+		}
+	}
+	// An app and a hosted agent never turn into each other by reusing a name:
+	// an agent carries an identity customers approved.
+	if err == nil && found && existing.UserID == userID {
+		if kind, kerr := c.db.AppKind(ctx, existing.ID); kerr == nil && kind != meta.Kind {
+			if kind == "agent" {
+				return nil, 0, fmt.Errorf("%q is a hosted agent — deploy it with `tunr agent deploy`", meta.Name)
+			}
+			return nil, 0, fmt.Errorf("%q is already a web app; pick another name for the agent", meta.Name)
+		}
+	}
+	if meta.Kind == "agent" {
+		if quota.HostedAgents <= 0 {
+			return nil, 0, fmt.Errorf("%s plan does not include hosted agents.%s", planTitle(plan), upgradeHint(plan))
+		}
+		if !found || existing.UserID != userID {
+			if n, cerr := c.db.CountHostedAgentApps(ctx, userID); cerr == nil && n >= quota.HostedAgents {
+				return nil, 0, fmt.Errorf("%s plan allows %d hosted agents.%s", planTitle(plan), quota.HostedAgents, upgradeHint(plan))
+			}
+		}
+		if meta.VolumeMB > quota.AgentVolumeMB {
+			return nil, 0, fmt.Errorf("%s plan allows a %d MB volume per agent.%s", planTitle(plan), quota.AgentVolumeMB, upgradeHint(plan))
+		}
+	}
+	if n, err := c.db.CountDeploysSince(ctx, userID, 24); err == nil && n >= quota.DeploysPerDay {
+		return nil, 0, errors.New(deployQuotaMsg(plan, quota))
+	}
+
+	app, _, err := c.db.GetOrCreateAppByName(ctx, userID, meta.Name, newAppID(), newEdgeSecret(), meta.InternalPort)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	seq, err := c.db.NextDeploymentSeq(ctx, app.ID)
 	if err != nil {
-		fail("deployment seq: " + err.Error())
-		return
+		return nil, 0, fmt.Errorf("deployment seq: %w", err)
 	}
 	depID := newDeploymentID()
 	_ = c.db.InsertDeployment(ctx, depID, app.ID, seq, "building")
@@ -454,28 +499,52 @@ func (c *ControlPlane) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		"env":           meta.Env,
 		"memory_mb":     quota.AppMemoryMB,
 		"cpus":          1.0,
+		"kind":          meta.Kind,
+		"volume_mb":     meta.VolumeMB,
 	})
 
-	send(map[string]string{"event": "queued", "detail": "sending to builder"})
+	send(map[string]any{"event": "queued", "detail": "sending to builder"})
 	endpoint, err := c.runner.Deploy(ctx, runnerMeta, src, func(ev map[string]any) { send(ev) })
 	if err != nil {
 		_ = c.db.UpdateDeployment(ctx, depID, "failed", "", err.Error())
-		fail(err.Error())
-		return
+		return nil, 0, err
 	}
 
 	if err := c.db.UpsertCloudRoute(ctx, app.Name, app.ID, endpoint, 30); err != nil {
-		fail("route: " + err.Error())
-		return
+		return nil, 0, fmt.Errorf("route: %w", err)
 	}
 	_ = c.db.SetAppStatus(ctx, app.ID, "live")
 	_ = c.db.UpdateDeployment(ctx, depID, "healthy", "", "")
+	return app, seq, nil
+}
 
-	send(map[string]any{
-		"event": "live",
-		"url":   fmt.Sprintf("https://%s.%s", app.Name, c.domain),
-		"seq":   seq,
-	})
+// AgentDeploy is a hosted-agent deploy requested by the Agent Bridge.
+type AgentDeploy struct {
+	UserID, ClaimPlan, Name string
+	InternalPort            int
+	Env                     map[string]string
+	VolumeMB                int
+}
+
+// DeployAgentApp deploys a hosted agent through the same pipeline as
+// `tunr deploy`, with agent quotas and kind. Returns the app ID and URL host.
+func (c *ControlPlane) DeployAgentApp(ctx context.Context, d AgentDeploy, src io.Reader, send func(map[string]any)) (string, error) {
+	if c.db == nil || c.runner == nil || !c.runner.Enabled() {
+		return "", errors.New("hosted agents are not available (no runner configured)")
+	}
+	if d.InternalPort == 0 {
+		d.InternalPort = 8080
+	}
+	if !validSubdomain(d.Name) {
+		return "", errors.New("name must be a valid subdomain (a-z, 0-9, dash)")
+	}
+	plan := resolveUserPlan(ctx, c.db, d.UserID, d.ClaimPlan)
+	app, _, err := c.deploy(ctx, d.UserID, plan, deployRequest{Name: d.Name, InternalPort: d.InternalPort,
+		Env: d.Env, Kind: "agent", VolumeMB: d.VolumeMB}, src, send)
+	if err != nil {
+		return "", err
+	}
+	return app.ID, nil
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

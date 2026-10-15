@@ -15,16 +15,18 @@ type PlanQuota struct {
 	AppMemoryMB       int // memory limit handed to the runner per app
 	DeploysPerDay     int // rolling 24 h, across all of the user's apps
 	ConcurrentTunnels int // open tunnels per signed-in user
+	HostedAgents      int // Agent Bridge agents running on tunr (count toward Apps too)
+	AgentVolumeMB     int // persistent /data per hosted agent (advisory until enforced by the runner)
 }
 
 // planQuotas — keep in sync with the Free/Pro cards on tunr.sh.
 // Per-minute request limits live in rate_limiter.go (planLimits).
 var planQuotas = map[string]PlanQuota{
-	"free": {Apps: 3, AppMemoryMB: 256, DeploysPerDay: 20, ConcurrentTunnels: 2},
-	"pro":  {Apps: 25, AppMemoryMB: 512, DeploysPerDay: 200, ConcurrentTunnels: 10},
+	"free": {Apps: 3, AppMemoryMB: 256, DeploysPerDay: 20, ConcurrentTunnels: 2, HostedAgents: 1, AgentVolumeMB: 256},
+	"pro":  {Apps: 25, AppMemoryMB: 512, DeploysPerDay: 200, ConcurrentTunnels: 10, HostedAgents: 10, AgentVolumeMB: 2048},
 	// Team isn't sold yet (sharing/roles aren't built); the row exists so a
 	// team subscription never lands on free limits.
-	"team": {Apps: 100, AppMemoryMB: 1024, DeploysPerDay: 500, ConcurrentTunnels: 25},
+	"team": {Apps: 100, AppMemoryMB: 1024, DeploysPerDay: 500, ConcurrentTunnels: 25, HostedAgents: 50, AgentVolumeMB: 10240},
 }
 
 // quotaFor returns the quota for a plan name; unknown plans get free limits.

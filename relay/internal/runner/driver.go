@@ -37,6 +37,8 @@ type AppSpec struct {
 	CPUs         float64           // e.g. 1.0
 	MemoryMB     int               // e.g. 256
 	EdgeSecret   string            // HMAC key shared with relay (tunr-shim verifies)
+	Kind         string            // "web" (default) | "agent" (Agent Bridge hosted agent)
+	VolumeMB     int               // >0: persistent volume mounted at /data (agents)
 }
 
 // DeploySpec is a single (re)deploy of an app with a concrete image.
@@ -113,6 +115,10 @@ type DockerDriver struct {
 	// runsc fail to create the sandbox at all, breaking every deploy. Read the
 	// note in cpubaseline.go before enabling it.
 	CPUBaseline string
+	// AgentBinary is the host path of a static tunr CLI. When set, hosted
+	// agents get it read-only at /opt/tunr/bin/tunr, so `tunr access` and the
+	// MCP tools work without baking tunr into every image.
+	AgentBinary string
 }
 
 // NewDockerDriver returns a DockerDriver with secure defaults (gVisor + isolated
@@ -171,36 +177,7 @@ func (d *DockerDriver) Deploy(ctx context.Context, dep DeploySpec) (Endpoint, er
 		cpus = 1.0
 	}
 
-	args := []string{
-		"run", "-d",
-		"--name", name,
-		"--runtime", d.Runtime,
-		"--network", d.Network,
-		"--memory", fmt.Sprintf("%dm", tier.MemoryMaxMB),
-		"--memory-swap", fmt.Sprintf("%dm", tier.MemoryMaxMB*3), // 2× MemoryMax of swap headroom
-		"--cpus", fmt.Sprintf("%.2f", cpus),
-		"--pids-limit", "256",
-		// OOM victim ordering (Faz 0). If the box ever does run out of memory,
-		// the kernel must take a tenant app, never the relay, Postgres or the
-		// runner — losing one app is an incident, losing the control plane is
-		// an outage for everyone. A positive adj makes apps the first choice.
-		"--oom-score-adj", "500",
-		"--security-opt", "no-new-privileges",
-		"--read-only", "--tmpfs", "/tmp:size=64m",
-		"--restart", "no", // lifecycle is ours, not dockerd's
-		"--label", "tunr.app=" + dep.App.ID,
-		"--label", "tunr.deployment=" + dep.DeploymentID,
-		"-e", fmt.Sprintf("PORT=%d", port),
-		"-e", "TUNR_APP=" + dep.App.Name,
-		"-e", "TUNR_EDGE_SECRET=" + dep.App.EdgeSecret, // consumed by tunr-shim
-	}
-	// Pin the sandbox's CPU feature set so future snapshots stay portable
-	// across nodes. No-op today (one node); irreversible if deferred.
-	args = append(args, d.cpuBaselineArgs(ctx)...)
-
-	for k, v := range dep.App.Env {
-		args = append(args, "-e", k+"="+v)
-	}
+	args := d.runArgs(ctx, dep, name, tier, cpus, port)
 	args = append(args, dep.ImageRef)
 
 	if _, err := d.docker(ctx, args...); err != nil {
@@ -242,6 +219,58 @@ func (d *DockerDriver) tierFor(app AppSpec) QoSTier {
 // containerRef resolves an app's full container ID and host PID — both needed
 // to locate its cgroup. PID is 0 for a stopped container, which is fine: the
 // path resolver falls back to name-based lookup.
+// runArgs builds the `docker run` arguments for a deployment (image last is
+// appended by the caller). Split out so the security-relevant flags are
+// unit-testable without Docker.
+func (d *DockerDriver) runArgs(ctx context.Context, dep DeploySpec, name string, tier QoSTier, cpus float64, port int) []string {
+	args := []string{
+		"run", "-d",
+		"--name", name,
+		"--runtime", d.Runtime,
+		"--network", d.Network,
+		"--memory", fmt.Sprintf("%dm", tier.MemoryMaxMB),
+		"--memory-swap", fmt.Sprintf("%dm", tier.MemoryMaxMB*3), // 2× MemoryMax of swap headroom
+		"--cpus", fmt.Sprintf("%.2f", cpus),
+		"--pids-limit", "256",
+		// OOM victim ordering (Faz 0). If the box ever does run out of memory,
+		// the kernel must take a tenant app, never the relay, Postgres or the
+		// runner — losing one app is an incident, losing the control plane is
+		// an outage for everyone. A positive adj makes apps the first choice.
+		"--oom-score-adj", "500",
+		"--security-opt", "no-new-privileges",
+		"--read-only", "--tmpfs", "/tmp:size=64m",
+		"--restart", "no", // lifecycle is ours, not dockerd's
+		"--label", "tunr.app=" + dep.App.ID,
+		"--label", "tunr.deployment=" + dep.DeploymentID,
+		"-e", fmt.Sprintf("PORT=%d", port),
+		"-e", "TUNR_APP=" + dep.App.Name,
+		"-e", "TUNR_EDGE_SECRET=" + dep.App.EdgeSecret, // consumed by tunr-shim
+	}
+	// Pin the sandbox's CPU feature set so future snapshots stay portable
+	// across nodes. No-op today (one node); irreversible if deferred.
+	args = append(args, d.cpuBaselineArgs(ctx)...)
+
+	for k, v := range dep.App.Env {
+		args = append(args, "-e", k+"="+v)
+	}
+	if dep.App.Kind == "agent" {
+		args = append(args, "-e", "TUNR_HOSTED_AGENT=1")
+		if d.AgentBinary != "" {
+			args = append(args, "--mount", "type=bind,src="+d.AgentBinary+",dst=/opt/tunr/bin/tunr,readonly")
+		}
+	}
+	// Persistent state for agents (the root filesystem stays read-only). Local
+	// Docker volumes have no size quota; VolumeMB is advisory until the
+	// runner enforces it (see roadmap P7-T3).
+	if dep.App.VolumeMB > 0 {
+		args = append(args, "--mount", "type=volume,src="+volumeName(dep.App.ID)+",dst=/data")
+		args = append(args, "-e", "TUNR_DATA_DIR=/data")
+	}
+	return args
+}
+
+func volumeName(appID string) string { return "tunr-vol-" + appID }
+
 func (d *DockerDriver) containerRef(ctx context.Context, appID string) (id string, pid int, err error) {
 	out, err := d.docker(ctx, "inspect", "-f", "{{.Id}} {{.State.Pid}}", d.container(appID))
 	if err != nil {
@@ -486,6 +515,11 @@ func (d *DockerDriver) Destroy(ctx context.Context, appID string) error {
 		}
 	}
 	_, err := d.docker(ctx, "rm", "-f", d.container(appID))
+	// The app is being deleted: its persistent volume goes with it. Idempotent
+	// ("no such volume" is the desired end state).
+	if out, verr := d.docker(ctx, "volume", "rm", "-f", volumeName(appID)); verr != nil {
+		logQoS("remove volume %s: %v %s", volumeName(appID), verr, out)
+	}
 	return err
 }
 

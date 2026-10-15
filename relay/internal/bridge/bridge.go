@@ -65,8 +65,9 @@ func ConfigFromEnv(getenv func(string) string) Config {
 
 // Deps are the relay components the bridge uses.
 type Deps struct {
-	DB  *db.DB
-	JWT *auth.JWTAuth
+	DB       *db.DB
+	JWT      *auth.JWTAuth
+	Deployer AgentAppDeployer // hosted agents; nil = not offered
 }
 
 // Server is the bridge's HTTP surface.
@@ -79,12 +80,16 @@ type Server struct {
 	access *Access
 	notify *Notifier
 	logins *loginLimiter
+
+	deployer    AgentAppDeployer
+	hosted      *hostedCache
+	dispatchVia Dispatcher
 }
 
 // New builds the bridge server. With cfg.Enabled false it does nothing and
 // cannot fail, so a disabled bridge can never take the relay down.
 func New(cfg Config, deps Deps) (*Server, error) {
-	s := &Server{cfg: cfg, db: deps.DB, jwt: deps.JWT}
+	s := &Server{cfg: cfg, db: deps.DB, jwt: deps.JWT, deployer: deps.Deployer, hosted: &hostedCache{byName: map[string]db.HostedApp{}}}
 	if !cfg.Enabled {
 		return s, nil
 	}
@@ -147,6 +152,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	s.registerAPI(mux)
 	s.registerGrants(mux)
 	s.registerPortal(mux)
+	s.registerHosted(mux)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

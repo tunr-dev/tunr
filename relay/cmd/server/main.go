@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -163,19 +164,23 @@ func main() {
 	// ── Agent Bridge (TUNR_BRIDGE_ENABLED) ──
 	// Kapalıyken hiçbir route eklenmez; /bridge/* ve /api/v1/bridge/* eskisi
 	// gibi "/" tunnel proxy'sine düşer. Plan: docs/protocol/bridge.md.
-	bridgeSrv, err := bridge.New(bridge.ConfigFromEnv(os.Getenv), bridge.Deps{DB: database, JWT: jwtAuth})
+	controlPlane := relay.NewControlPlane(jwtAuth, database, cfg.Domain, runnerClient, scheduler)
+	bridgeSrv, err := bridge.New(bridge.ConfigFromEnv(os.Getenv), bridge.Deps{
+		DB: database, JWT: jwtAuth, Deployer: agentDeployer{controlPlane},
+	})
 	if err != nil {
 		logger.Fatal("agent bridge: %v", err)
 	}
 	bridgeSrv.RegisterRoutes(mux)
 	bridgeSrv.StartGrantSweeper(ctx)
+	bridgeSrv.StartCron(ctx)
 	if bridgeSrv.Enabled() {
 		logger.Info("agent bridge enabled: /api/v1/bridge/* (relay key %s)", bridgeSrv.RelayKey())
 	}
 
 	// ── Pivot Faz 0: control plane (/v1/apps) ──
 	// App yaratma + cloud route seed'leme (deploy pipeline sonraki aşama).
-	relay.NewControlPlane(jwtAuth, database, cfg.Domain, runnerClient, scheduler).RegisterRoutes(mux)
+	controlPlane.RegisterRoutes(mux)
 	if cfg.PaddleWebhookSecret != "" {
 		paddleWebhook := relay.NewPaddleWebhookHandler(database, cfg.PaddleWebhookSecret, relay.PaddlePlanConfig{
 			ProPriceID:      cfg.PaddleProPriceID,
@@ -192,7 +197,9 @@ func main() {
 
 	// ── Tüm diğer istekler → tunnel proxy ──
 	// Subdomain bazlı routing buradan geçer
-	mux.HandleFunc("/", proxy.ServeHTTP)
+	// Hosted Agent Bridge agents are not public: WrapProxy answers for them
+	// (signed webhooks only) and passes every other host through unchanged.
+	mux.Handle("/", bridgeSrv.WrapProxy(http.HandlerFunc(proxy.ServeHTTP)))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
@@ -380,6 +387,15 @@ func handleHealth() http.HandlerFunc {
 			"timestamp": time.Now().Unix(),
 		})
 	}
+}
+
+// agentDeployer adapts the control plane to the bridge's hosted-agent deploy.
+type agentDeployer struct{ cp *relay.ControlPlane }
+
+func (a agentDeployer) DeployAgentApp(ctx context.Context, userID, claimPlan, name string, port int,
+	env map[string]string, volumeMB int, src io.Reader, send func(map[string]any)) (string, error) {
+	return a.cp.DeployAgentApp(ctx, relay.AgentDeploy{UserID: userID, ClaimPlan: claimPlan, Name: name,
+		InternalPort: port, Env: env, VolumeMB: volumeMB}, src, send)
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────

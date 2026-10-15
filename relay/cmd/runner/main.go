@@ -57,7 +57,10 @@ var (
 	// a container, so density levers (memory.reclaim, memory.high, PSI) only work
 	// if /sys/fs/cgroup and /proc are bind-mounted in. Both degrade to no-ops.
 	cgroupRoot = flag.String("cgroup-root", envOr("TUNR_CGROUP_ROOT", "/sys/fs/cgroup"), "cgroup v2 hierarchy root")
-	procRoot   = flag.String("proc-root", envOr("TUNR_PROC_ROOT", "/proc"), "proc filesystem root (host proc for PSI)")
+	// agentBinary is a static tunr CLI on the host, bind-mounted read-only
+	// into hosted Agent Bridge agents. Empty: agents bring their own.
+	agentBinary = flag.String("agent-binary", envOr("TUNR_AGENT_BINARY", ""), "host path of the tunr CLI mounted into hosted agents")
+	procRoot    = flag.String("proc-root", envOr("TUNR_PROC_ROOT", "/proc"), "proc filesystem root (host proc for PSI)")
 
 	// buildSlots caps concurrent builds. The old `buildMu` serialised them, so
 	// the tenth person to deploy waited for nine full builds; three slots plus
@@ -180,6 +183,8 @@ type DeployMeta struct {
 	MemoryMB     int               `json:"memory_mb"`
 	CPUs         float64           `json:"cpus"`
 	NoCache      bool              `json:"no_cache"`
+	Kind         string            `json:"kind"`      // "web" | "agent"
+	VolumeMB     int               `json:"volume_mb"` // >0: persistent /data
 }
 
 func main() {
@@ -192,6 +197,7 @@ func main() {
 	drv.Runtime = *runtime
 	drv.Cgroups = cg
 	drv.CPUBaseline = *cpuBaseline
+	drv.AgentBinary = *agentBinary
 
 	// Density levers are optional but their absence is silent and expensive, so
 	// say so loudly at startup: an operator seeing "OFF" knows the box is running
@@ -431,6 +437,8 @@ func handleDeploy(w http.ResponseWriter, r *http.Request) {
 			Env:          meta.Env,
 			CPUs:         meta.CPUs,
 			MemoryMB:     meta.MemoryMB,
+			Kind:         meta.Kind,
+			VolumeMB:     meta.VolumeMB,
 			EdgeSecret:   meta.EdgeSecret,
 		},
 		ImageRef:     imageRef,

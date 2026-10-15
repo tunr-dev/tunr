@@ -46,3 +46,12 @@ func TestQuotaMessagesPointAtTheFix(t *testing.T) {
 		t.Errorf("pro users shouldn't be told to upgrade: %q", pro)
 	}
 }
+
+func TestHostedAgentQuotasExist(t *testing.T) {
+	for _, p := range []string{"free", "pro", "team"} {
+		q := quotaFor(p)
+		if q.HostedAgents <= 0 || q.AgentVolumeMB <= 0 || q.HostedAgents > q.Apps {
+			t.Errorf("%s: HostedAgents=%d AgentVolumeMB=%d Apps=%d", p, q.HostedAgents, q.AgentVolumeMB, q.Apps)
+		}
+	}
+}
