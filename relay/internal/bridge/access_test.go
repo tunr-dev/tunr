@@ -563,3 +563,72 @@ func TestAccessLateSummary(t *testing.T) {
 		t.Fatalf("late summaries = %+v (forged one must be dropped)", qs)
 	}
 }
+
+// E2E is used only when the agent asks AND the connector announced a cert.
+func TestAccessE2ENegotiation(t *testing.T) {
+	e := newAccessEnv(t)
+	fp := strings.Repeat("ab", 32)
+	c, _, err := websocket.DefaultDialer.Dial(e.wsURL("/bridge/connect"), http.Header{"Authorization": {"Bearer " + e.siteToken}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	_ = c.WriteJSON(msg(MsgHello, HelloData{Resources: []ResourceDecl{{"echo", "tcp"}}, TLSCertSHA256: fp}))
+	var w Message
+	_ = c.ReadJSON(&w)
+	var wd WelcomeData
+	_ = json.Unmarshal(w.Data, &wd)
+	e.res, _ = e.d.GetResource(context.Background(), e.cust.ID, wd.Resources[0].ID)
+	e.approve("rw", time.Hour)
+	if s, _ := e.d.GetSite(context.Background(), e.cust.ID, e.site.ID); s.TLSFingerprint != fp {
+		t.Errorf("site fingerprint not stored: %q", s.TLSFingerprint)
+	}
+
+	dial := func(e2e bool) (AccessReady, OpenData) {
+		hdr := http.Header{"Authorization": {"Bearer " + e.agentTok}}
+		if e2e {
+			hdr.Set("X-Tunr-E2E", "1")
+		}
+		a, _, err := websocket.DefaultDialer.Dial(e.wsURL("/bridge/access?resource=acme/echo"), hdr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { a.Close() })
+		_, b := readAgent(t, a)
+		var m Message
+		_ = json.Unmarshal(b, &m)
+		var rd AccessReady
+		_ = json.Unmarshal(m.Data, &rd)
+		var om Message
+		for om.Type != MsgOpen {
+			_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+			if err := c.ReadJSON(&om); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var od OpenData
+		_ = json.Unmarshal(om.Data, &od)
+		return rd, od
+	}
+	rd, od := dial(true)
+	if !rd.E2E || rd.SiteCertSHA256 != fp || !od.E2E {
+		t.Errorf("e2e requested: ready=%+v open.e2e=%v", rd, od.E2E)
+	}
+	rd, od = dial(false)
+	if rd.E2E || rd.SiteCertSHA256 != "" || od.E2E {
+		t.Errorf("e2e not requested: ready=%+v open.e2e=%v", rd, od.E2E)
+	}
+}
+
+func TestConnectRejectsBadTLSFingerprint(t *testing.T) {
+	e := newHubEnv(t)
+	c, _, err := e.dial(e.token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	_ = c.WriteJSON(msg(MsgHello, HelloData{TLSCertSHA256: "not-hex"}))
+	if m := e.read(c); m.Type != MsgError || !strings.Contains(string(m.Data), "bad_hello") {
+		t.Fatalf("got %s %s", m.Type, m.Data)
+	}
+}

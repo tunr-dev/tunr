@@ -24,11 +24,11 @@ plain HTTP 401 and no upgrade.
 
 | Type | Direction | Fields | Meaning |
 | --- | --- | --- | --- |
-| `bridge_hello` | C→R | `connector_version`, `resources[] {name, kind}` | Announce resource *names* (never addresses). Names: 3–32 chars `[a-z0-9-]`; kinds `postgres`, `tcp`, `http`; max 100. The site's resources become exactly this set (missing ones go `offline`); a name served by another site of the same org is refused (`resource_conflict`) |
+| `bridge_hello` | C→R | `connector_version`, `resources[] {name, kind}`, `tls_cert_sha256?` | Announce resource *names* (never addresses). Names: 3–32 chars `[a-z0-9-]`; kinds `postgres`, `tcp`, `http`; max 100. The site's resources become exactly this set (missing ones go `offline`); a name served by another site of the same org is refused (`resource_conflict`) |
 | `bridge_welcome` | R→C | `site_id`, `site_name`, `relay_key`, `resources[] {name, id}` | Connector compares `relay_key` with the key from its install command and disconnects on mismatch |
 | `ping` / `pong` | R→C / C→R | — | Every 30 s; the relay drops a connector silent for 75 s |
 | `error` | R→C | `code`, `message` | Sent before a relay-initiated close: `bad_hello`, `resource_conflict`, `replaced` (a newer connector for the same site connected), `disconnected` (token rotated, site deleted) |
-| `bridge_open` | R→C | `stream_id`, `resource_id`, `grant_jwt` | Open an authorised stream |
+| `bridge_open` | R→C | `stream_id`, `resource_id`, `grant_jwt`, `client_secret_sha256?`, `e2e?` | Open an authorised stream. `e2e`: the agent will TLS-handshake with the connector inside the stream |
 | `bridge_data` | both | `stream_id`, `payload` (base64) | Same encoding as `tcp_data` |
 | `bridge_close` | both | `stream_id`, `reason` | `client`, `expired`, `revoked`, `killed`, `invalid_grant`, `error` |
 | `bridge_audit` | C→R | `stream_id`, `command`, `tables[]`, `row_count`, `duration_ms`, `blocked`, `query_text?` | Per-query summary; `query_text` only if the customer org enabled it |
@@ -56,7 +56,7 @@ After the upgrade:
 
 - **Binary messages** carry raw stream bytes, both directions.
 - **Text messages** carry JSON control:
-  - relay → agent, first: `access_ready {stream_id, grant_id, mode, grant_expires_at}`
+  - relay → agent, first: `access_ready {stream_id, grant_id, mode, grant_expires_at, e2e, site_cert_sha256?}`
   - either way: `access_close {stream_id, reason}` — reasons include `client`,
     `expired` (grant end; the relay closes the stream at `expires_at`),
     `revoked`, `site_offline`, `invalid_grant` (connector refused),
@@ -65,6 +65,15 @@ After the upgrade:
 The relay forwards bytes to the connector as `bridge_data` (base64, ≤32 KiB
 per message). A connector's `bridge_data`/`bridge_close` are only accepted
 for streams of its own site.
+
+**End-to-end TLS.** The agent sends `X-Tunr-E2E: 1`. If the site's connector
+announced `tls_cert_sha256`, the relay sets `e2e` on `bridge_open` and
+`access_ready`; the agent then runs a TLS 1.3 client handshake inside the
+stream, pinning `site_cert_sha256` (no CA), and the connector terminates it
+with its certificate before its own access checks and pgproxy. The relay only
+ever forwards ciphertext. A relay that is actively compromised could substitute
+the fingerprint; vendors can verify it out of band (portal, `tunr connect
+status`).
 
 **TCP resources and modes.** Raw TCP cannot be made read-only, so the
 connector opens `tcp` resources only for `rw` grants (which require two

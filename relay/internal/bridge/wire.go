@@ -40,6 +40,9 @@ type ResourceDecl struct {
 type HelloData struct {
 	ConnectorVersion string         `json:"connector_version"`
 	Resources        []ResourceDecl `json:"resources"`
+	// TLSCertSHA256 announces end-to-end TLS support (hex SHA-256 of the
+	// connector's certificate). Empty: an older connector, no E2E.
+	TLSCertSHA256 string `json:"tls_cert_sha256,omitempty"`
 }
 
 // WelcomeResource maps an announced name to its relay ID.
@@ -65,6 +68,9 @@ type OpenData struct {
 	// agent's DSN (`tunr access`); pgproxy accepts only that password. Only
 	// the hash crosses the relay.
 	ClientSecretHash string `json:"client_secret_sha256,omitempty"`
+	// E2E: the agent will start a TLS handshake with the connector inside
+	// this stream; the connector terminates it with its site certificate.
+	E2E bool `json:"e2e,omitempty"`
 }
 
 // DataPayload carries stream bytes (same encoding as tcp_data).

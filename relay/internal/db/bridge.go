@@ -21,20 +21,21 @@ import (
 
 // Site is a customer network location served by one connector.
 type Site struct {
-	ID           string     `json:"id"`
-	OrgID        string     `json:"org_id"`
-	Name         string     `json:"name"`
-	Status       string     `json:"status"`
-	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
-	ConnectorVer string     `json:"connector_version,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID             string     `json:"id"`
+	OrgID          string     `json:"org_id"`
+	Name           string     `json:"name"`
+	Status         string     `json:"status"`
+	LastSeenAt     *time.Time `json:"last_seen_at,omitempty"`
+	ConnectorVer   string     `json:"connector_version,omitempty"`
+	TLSFingerprint string     `json:"tls_fingerprint,omitempty"` // end-to-end TLS certificate sha256
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
-const siteCols = `id, org_id, name, status, last_seen_at, COALESCE(connector_ver, ''), created_at`
+const siteCols = `id, org_id, name, status, last_seen_at, COALESCE(connector_ver, ''), COALESCE(tls_fingerprint, ''), created_at`
 
 func scanSite(row pgx.Row) (*Site, error) {
 	var s Site
-	if err := row.Scan(&s.ID, &s.OrgID, &s.Name, &s.Status, &s.LastSeenAt, &s.ConnectorVer, &s.CreatedAt); err != nil {
+	if err := row.Scan(&s.ID, &s.OrgID, &s.Name, &s.Status, &s.LastSeenAt, &s.ConnectorVer, &s.TLSFingerprint, &s.CreatedAt); err != nil {
 		return nil, mapErr(err)
 	}
 	return &s, nil
@@ -471,10 +472,11 @@ func (db *DB) SyncSiteResources(ctx context.Context, orgID, siteID string, decls
 }
 
 // SetSiteOnline records a connector session start.
-func (db *DB) SetSiteOnline(ctx context.Context, siteID, connectorVer string) error {
+func (db *DB) SetSiteOnline(ctx context.Context, siteID, connectorVer, tlsFingerprint string) error {
 	return affected(db.pool.Exec(ctx, `
-		UPDATE sites SET status = 'online', last_seen_at = now(), connector_ver = NULLIF($2, '')
-		WHERE id = $1 AND status <> 'disabled'`, siteID, connectorVer))
+		UPDATE sites SET status = 'online', last_seen_at = now(), connector_ver = NULLIF($2, ''),
+		       tls_fingerprint = NULLIF($3, '')
+		WHERE id = $1 AND status <> 'disabled'`, siteID, connectorVer, tlsFingerprint))
 }
 
 // SetSiteOffline records a connector session end. A disabled site stays disabled.

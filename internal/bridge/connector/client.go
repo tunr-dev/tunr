@@ -51,6 +51,9 @@ type Client struct {
 	Streams  Streams // nil → refuse every open
 	Logf     func(format string, args ...any)
 	OnReady  func(w bridge.WelcomeData) // optional, for status output and tests
+	// TLSFingerprint is announced in the hello when the connector can
+	// terminate end-to-end TLS.
+	TLSFingerprint string
 
 	// Tunables (tests shorten them).
 	HelloTimeout time.Duration
@@ -181,7 +184,7 @@ func (c *Client) session(ctx context.Context, pin ed25519.PublicKey) error {
 
 	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	if err := conn.WriteJSON(bridge.NewMessage(bridge.MsgHello, bridge.HelloData{
-		ConnectorVersion: c.Version, Resources: c.Cfg.Decls(),
+		ConnectorVersion: c.Version, Resources: c.Cfg.Decls(), TLSCertSHA256: c.TLSFingerprint,
 	})); err != nil {
 		return fmt.Errorf("hello: %w", err)
 	}

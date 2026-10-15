@@ -52,6 +52,10 @@ type AccessReady struct {
 	GrantID        string    `json:"grant_id"`
 	Mode           string    `json:"mode"`
 	GrantExpiresAt time.Time `json:"grant_expires_at"`
+	// E2E: the stream is end-to-end encrypted — the agent must now handshake
+	// TLS with the connector and pin SiteCertSHA256.
+	E2E            bool   `json:"e2e"`
+	SiteCertSHA256 string `json:"site_cert_sha256,omitempty"`
 }
 
 var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -179,6 +183,7 @@ type AccessCheck struct {
 	GrantID        string    `json:"grant_id"`
 	Mode           string    `json:"mode"`
 	GrantExpiresAt time.Time `json:"grant_expires_at"`
+	E2EAvailable   bool      `json:"e2e_available"`
 }
 
 // ServeCheck handles GET /bridge/access/check: the same checks as
@@ -194,6 +199,7 @@ func (a *Access) ServeCheck(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(AccessCheck{
 		Resource: r.URL.Query().Get("resource"), Kind: z.res.Kind,
 		GrantID: z.grant.ID, Mode: z.grant.Mode, GrantExpiresAt: *z.grant.ExpiresAt,
+		E2EAvailable: a.hub.SiteTLS(z.res.SiteID) != "",
 	})
 }
 
@@ -255,12 +261,16 @@ func (a *Access) ServeAccess(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 	}()
 
+	siteFP := ""
+	if r.Header.Get("X-Tunr-E2E") == "1" {
+		siteFP = a.hub.SiteTLS(res.SiteID) // "" → this connector can't, stream stays plain
+	}
 	clientHash := strings.ToLower(r.Header.Get("X-Tunr-Client-Secret-Sha256"))
 	if !hex64.MatchString(clientHash) {
 		clientHash = ""
 	}
 	if err := a.hub.Send(res.SiteID, msg(MsgOpen, OpenData{StreamID: streamID, ResourceID: res.ID, GrantJWT: grantJWT,
-		ClientSecretHash: clientHash})); err != nil {
+		ClientSecretHash: clientHash, E2E: siteFP != ""})); err != nil {
 		st.close("site_offline", false)
 	}
 	a.auditBoth(st, audit.ActionBridgeSessionOpened, map[string]any{
@@ -270,6 +280,7 @@ func (a *Access) ServeAccess(w http.ResponseWriter, r *http.Request) {
 	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_ = conn.WriteJSON(msg(MsgAccessReady, AccessReady{
 		StreamID: streamID, GrantID: grant.ID, Mode: grant.Mode, GrantExpiresAt: *grant.ExpiresAt,
+		E2E: siteFP != "", SiteCertSHA256: siteFP,
 	}))
 
 	go a.agentReader(conn, st)

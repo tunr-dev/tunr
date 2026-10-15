@@ -152,8 +152,10 @@ v0.7.x line. Decision record: `docs/adr/0001-agent-bridge.md`. Wire contract:
   audited, customer kill ≤ 2s, every query filtered by org_id, no CLI telemetry.
   Agent tokens carry `typ:"agent"`; human endpoints reject any token with a `typ`.
 - Do not claim more than the design delivers: connector verification does not protect
-  against a relay compromise (the signing key is on the relay), and the relay can read
-  stream bytes until end-to-end TLS ships.
+  against a relay compromise (the signing key is on the relay); end-to-end TLS keeps the
+  relay from *reading* streams, but an actively compromised relay could swap the site
+  fingerprint it hands to agents. Say "the relay can't read your data in transit", not
+  "even a compromised relay can't".
 - Never add cgo dependencies (CLI is built with CGO_ENABLED=0). Use
   `github.com/jackc/pgx/v5/pgproto3` for Postgres wire handling.
 - SQL classification in pgproxy is defense in depth; the read-only DB role is the real

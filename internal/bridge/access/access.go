@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -50,6 +51,7 @@ func (e *Error) Advice(resource string) string {
 
 // Check is the relay's pre-flight answer.
 type Check struct {
+	E2EAvailable   bool      `json:"e2e_available"`
 	Resource       string    `json:"resource"`
 	Kind           string    `json:"kind"`
 	GrantID        string    `json:"grant_id"`
@@ -70,8 +72,12 @@ type Client struct {
 	// DSN's password). Only its SHA-256 is sent; the connector's pgproxy
 	// checks it, so other local users can't use this port.
 	ClientSecret string
-	Logf         func(string, ...any)
-	HTTP         *http.Client
+	// RequireE2E refuses streams the connector can't end-to-end encrypt;
+	// DisableE2E never asks for it (tests, debugging).
+	RequireE2E bool
+	DisableE2E bool
+	Logf       func(string, ...any)
+	HTTP       *http.Client
 }
 
 func (c *Client) logf(f string, a ...any) {
@@ -169,7 +175,9 @@ func (c *Client) Serve(ctx context.Context, l net.Listener) error {
 	}
 }
 
-// Bridge carries one local connection over one relay stream.
+// Bridge carries one local connection over one relay stream. When the site
+// supports it the stream is end-to-end encrypted: a TLS 1.3 session with the
+// connector, pinned to the certificate fingerprint the relay reported.
 func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 	defer local.Close()
 	tok, err := c.token(ctx)
@@ -180,6 +188,9 @@ func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 	if c.ClientSecret != "" {
 		sum := sha256.Sum256([]byte(c.ClientSecret))
 		hdr.Set("X-Tunr-Client-Secret-Sha256", hex.EncodeToString(sum[:]))
+	}
+	if !c.DisableE2E {
+		hdr.Set("X-Tunr-E2E", "1")
 	}
 	d := websocket.Dialer{HandshakeTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment}
 	ws, resp, err := d.DialContext(ctx, c.endpoint("/bridge/access", true), hdr)
@@ -194,88 +205,201 @@ func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 	if err != nil {
 		return fmt.Errorf("dial relay: %w", err)
 	}
-	defer ws.Close()
-	ws.SetReadLimit(1 << 20)
+	stream := newWSConn(ws)
+	defer stream.Close()
 
-	// The relay pings every 30s; anything silent for 90s is dead.
+	ready, err := stream.ready()
+	if err != nil {
+		return err
+	}
+	var conn net.Conn = stream
+	switch {
+	case ready.E2E:
+		tc := tls.Client(stream, PinnedTLS(ready.SiteCertSHA256))
+		_ = tc.SetDeadline(time.Now().Add(15 * time.Second))
+		if err := tc.HandshakeContext(ctx); err != nil {
+			if r := stream.reason(); r != "" {
+				// The connector refused the stream (policy), not the TLS.
+				c.logf("stream %s closed: %s", ready.StreamID, r)
+				return fmt.Errorf("stream refused by the customer's connector: %s", r)
+			}
+			return fmt.Errorf("end-to-end TLS with the connector failed: %w", err)
+		}
+		_ = tc.SetDeadline(time.Time{})
+		conn = tc
+		c.logf("stream %s open (grant %s, end-to-end encrypted)", ready.StreamID, ready.GrantID)
+	case c.RequireE2E:
+		return errors.New("the customer's connector does not support end-to-end encryption (update it) and --require-e2e is set")
+	default:
+		c.logf("stream %s open (grant %s) — NOT end-to-end encrypted: the customer's connector is too old", ready.StreamID, ready.GrantID)
+	}
+
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(conn, local); _ = closeWrite(conn); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(local, conn); done <- struct{}{} }()
+	select {
+	case <-ctx.Done():
+	case <-done:
+	}
+	if r := stream.reason(); r != "" {
+		c.logf("stream %s closed: %s", ready.StreamID, r)
+	}
+	return nil
+}
+
+func closeWrite(c net.Conn) error {
+	if tc, ok := c.(*tls.Conn); ok {
+		return tc.CloseWrite()
+	}
+	if w, ok := c.(*wsConn); ok {
+		return w.Close()
+	}
+	return nil
+}
+
+// PinnedTLS trusts exactly one certificate: the connector's, by SHA-256.
+func PinnedTLS(fp string) *tls.Config {
+	return &tls.Config{
+		MinVersion:         tls.VersionTLS13,
+		ServerName:         "tunr-site",
+		InsecureSkipVerify: true, // replaced by the pin below: no CA is involved
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 {
+				return errors.New("connector sent no certificate")
+			}
+			sum := sha256.Sum256(cs.PeerCertificates[0].Raw)
+			if !strings.EqualFold(hex.EncodeToString(sum[:]), fp) {
+				return errors.New("connector certificate does not match the site fingerprint")
+			}
+			return nil
+		},
+	}
+}
+
+// wsConn adapts the agent leg of a bridge stream (binary = bytes, text =
+// control) to a net.Conn so TLS can run over it.
+type wsConn struct {
+	ws      *websocket.Conn
+	buf     []byte
+	wmu     sync.Mutex
+	once    sync.Once
+	rmu     sync.Mutex
+	closeRs string
+}
+
+type readyMsg struct {
+	StreamID       string `json:"stream_id"`
+	GrantID        string `json:"grant_id"`
+	E2E            bool   `json:"e2e"`
+	SiteCertSHA256 string `json:"site_cert_sha256"`
+}
+
+func newWSConn(ws *websocket.Conn) *wsConn {
+	ws.SetReadLimit(1 << 20)
 	_ = ws.SetReadDeadline(time.Now().Add(90 * time.Second))
 	ws.SetPingHandler(func(data string) error {
 		_ = ws.SetReadDeadline(time.Now().Add(90 * time.Second))
 		return ws.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(5*time.Second))
 	})
+	return &wsConn{ws: ws}
+}
 
-	done := make(chan error, 2)
-	var streamID string
-
-	// relay → local
-	go func() {
-		for {
-			typ, b, err := ws.ReadMessage()
-			if err != nil {
-				done <- nil
-				return
-			}
-			_ = ws.SetReadDeadline(time.Now().Add(90 * time.Second))
-			switch typ {
-			case websocket.BinaryMessage:
-				if _, err := local.Write(b); err != nil {
-					done <- nil
-					return
-				}
-			case websocket.TextMessage:
-				var m struct {
-					Type string `json:"type"`
-					Data struct {
-						StreamID string `json:"stream_id"`
-						GrantID  string `json:"grant_id"`
-						Reason   string `json:"reason"`
-					} `json:"data"`
-				}
-				if json.Unmarshal(b, &m) != nil {
-					continue
-				}
-				switch m.Type {
-				case "access_ready":
-					streamID = m.Data.StreamID
-					c.logf("stream %s open (grant %s)", m.Data.StreamID, m.Data.GrantID)
-				case "access_close":
-					c.logf("stream %s closed: %s", streamID, m.Data.Reason)
-					done <- nil
-					return
-				}
-			}
+// ready reads the relay's access_ready.
+func (w *wsConn) ready() (readyMsg, error) {
+	for {
+		typ, b, err := w.ws.ReadMessage()
+		if err != nil {
+			return readyMsg{}, fmt.Errorf("relay closed the stream before it was ready: %w", err)
 		}
-	}()
-
-	// local → relay (single writer of data frames)
-	go func() {
-		buf := make([]byte, 32<<10)
-		for {
-			n, err := local.Read(buf)
-			if n > 0 {
-				_ = ws.SetWriteDeadline(time.Now().Add(30 * time.Second))
-				if werr := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					done <- nil
-					return
-				}
-			}
-			if err != nil {
-				_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				_ = ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"access_close","data":{"reason":"client"}}`))
-				done <- nil
-				return
-			}
+		if typ != websocket.TextMessage {
+			continue
 		}
-	}()
-
-	select {
-	case <-ctx.Done():
-	case <-done:
+		var m struct {
+			Type string   `json:"type"`
+			Data readyMsg `json:"data"`
+		}
+		if json.Unmarshal(b, &m) == nil && m.Type == "access_ready" {
+			return m.Data, nil
+		}
+		if strings.Contains(string(b), "access_close") {
+			return readyMsg{}, errors.New("relay closed the stream: " + string(b))
+		}
 	}
-	_ = ws.WriteControl(websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+}
+
+func (w *wsConn) Read(p []byte) (int, error) {
+	w.rmu.Lock()
+	defer w.rmu.Unlock()
+	for len(w.buf) == 0 {
+		typ, b, err := w.ws.ReadMessage()
+		if err != nil {
+			return 0, io.EOF
+		}
+		_ = w.ws.SetReadDeadline(time.Now().Add(90 * time.Second))
+		switch typ {
+		case websocket.BinaryMessage:
+			w.buf = b
+		case websocket.TextMessage:
+			var m struct {
+				Type string `json:"type"`
+				Data struct {
+					Reason string `json:"reason"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(b, &m) == nil && m.Type == "access_close" {
+				w.wmu.Lock()
+				w.closeRs = m.Data.Reason
+				w.wmu.Unlock()
+				return 0, io.EOF
+			}
+		}
+	}
+	n := copy(p, w.buf)
+	w.buf = w.buf[n:]
+	return n, nil
+}
+
+func (w *wsConn) Write(p []byte) (int, error) {
+	w.wmu.Lock()
+	defer w.wmu.Unlock()
+	_ = w.ws.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	if err := w.ws.WriteMessage(websocket.BinaryMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (w *wsConn) Close() error {
+	w.once.Do(func() {
+		w.wmu.Lock()
+		_ = w.ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		_ = w.ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"access_close","data":{"reason":"client"}}`))
+		_ = w.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+		w.wmu.Unlock()
+		_ = w.ws.Close()
+	})
 	return nil
 }
+
+func (w *wsConn) reason() string {
+	w.wmu.Lock()
+	defer w.wmu.Unlock()
+	return w.closeRs
+}
+
+func (w *wsConn) LocalAddr() net.Addr  { return dummyAddr{} }
+func (w *wsConn) RemoteAddr() net.Addr { return dummyAddr{} }
+func (w *wsConn) SetDeadline(t time.Time) error {
+	_ = w.ws.SetReadDeadline(t)
+	return w.ws.SetWriteDeadline(t)
+}
+func (w *wsConn) SetReadDeadline(t time.Time) error  { return w.ws.SetReadDeadline(t) }
+func (w *wsConn) SetWriteDeadline(t time.Time) error { return w.ws.SetWriteDeadline(t) }
+
+type dummyAddr struct{}
+
+func (dummyAddr) Network() string { return "tunr-bridge" }
+func (dummyAddr) String() string  { return "tunr-bridge" }
 
 // NewClientSecret returns a random DSN password for local clients.
 func NewClientSecret() string {

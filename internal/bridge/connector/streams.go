@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -47,6 +48,10 @@ type Manager struct {
 	Logf    func(string, ...any)
 	Dial    func(ctx context.Context, network, addr string) (net.Conn, error) // tests override
 	Now     func() time.Time
+
+	// TLSCert, when set, lets the connector terminate end-to-end TLS for
+	// streams that ask for it (see e2e.go).
+	TLSCert *tls.Certificate
 
 	mu      sync.Mutex
 	siteID  string
@@ -170,7 +175,15 @@ func (m *Manager) Open(ctx context.Context, o bridge.OpenData, send func(bridge.
 	m.mu.Unlock()
 
 	m.Logf("stream %s → %s (grant %s, agent %s, %s)", o.StreamID, res.Name, claims.GrantID, claims.Subject, claims.Mode)
-	go m.run(sctx, st, res, claims, o.ClientSecretHash)
+	if o.E2E && m.TLSCert == nil {
+		m.mu.Lock()
+		delete(m.streams, o.StreamID)
+		m.mu.Unlock()
+		cancel()
+		refuse(send, o.StreamID, "e2e_unavailable")
+		return
+	}
+	go m.run(sctx, st, res, claims, o.ClientSecretHash, o.E2E)
 }
 
 // open returns the connection a stream's bytes flow into: the target itself
@@ -241,8 +254,11 @@ func tighter(local, grant *Limits) pgproxy.Limits {
 	}
 }
 
-func (m *Manager) run(ctx context.Context, st *stream, res *Resource, claims *GrantClaims, clientHash string) {
+func (m *Manager) run(ctx context.Context, st *stream, res *Resource, claims *GrantClaims, clientHash string, e2e bool) {
 	conn, err := m.open(ctx, st, res, claims, clientHash)
+	if err == nil && e2e {
+		conn = wrapTLS(conn, *m.TLSCert)
+	}
 	if err != nil {
 		m.Logf("stream %s: open failed: %v", st.id, err)
 		m.finish(st, "dial_failed", true)

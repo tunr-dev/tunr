@@ -84,8 +84,16 @@ Build a two-sided bridge on top of the existing relay:
   - The grant signing key lives on the relay. Connector-side verification
     protects against relay *bugs*, not a relay *compromise*. Approver-side
     signing is a later phase.
-  - Until end-to-end TLS between `tunr access` and the connector ships, the
-    relay can see stream bytes. (`tunr tls` today is not SNI passthrough; this
-    is new work.)
+  - Streams are end-to-end TLS 1.3 between `tunr access` and the connector
+    when both support it (the default since P8): the connector holds a
+    self-signed certificate, the relay passes its SHA-256 to the agent, the
+    agent pins it. The relay carries ciphertext — protection against anyone
+    who can *read* the relay. It is not protection against a relay that is
+    actively compromised: such a relay could hand the agent a different
+    fingerprint. The fingerprint is shown in the portal and by
+    `tunr connect status` so it can be checked out of band. Streams to
+    older connectors stay unencrypted end to end (the agent logs it;
+    `--require-e2e` refuses them). Query summaries still reach the relay —
+    they are produced by the connector, after TLS.
   - Stream payloads are base64-in-JSON like `tcp_data`; fine for query traffic,
     inefficient for bulk export. Binary framing is a later phase.

@@ -165,9 +165,15 @@ func connectRun(ctx context.Context, path string) error {
 		return err
 	}
 	streams.Secrets = cfg.Secrets(path)
+	cert, fp, err := connector.LoadOrCreateSiteTLS(streams.Secrets, cfg.Site)
+	if err != nil {
+		return fmt.Errorf("site TLS key: %w", err)
+	}
+	streams.TLSCert = &cert
+	term.Dim.Println("  end-to-end TLS certificate sha256 " + fp)
 	cl := &connector.Client{
 		Cfg: cfg, Token: token, Version: tunnel.Version, KillPath: connector.KillPath(path),
-		Streams: streams, Logf: logf,
+		Streams: streams, Logf: logf, TLSFingerprint: fp,
 		OnReady: func(w bridge.WelcomeData) {
 			term.Green.Println(fmt.Sprintf("  ● online — %d resources registered", len(w.Resources)))
 		},
@@ -317,11 +323,15 @@ func newConnectStatusCmd() *cobra.Command {
 				return err
 			}
 			_, terr := cfg.Secrets(path).Get(connector.SiteTokenSecret)
+			fp := ""
+			if _, f, err := connector.LoadOrCreateSiteTLS(cfg.Secrets(path), cfg.Site); err == nil {
+				fp = f
+			}
 			_, kerr := os.Stat(connector.KillPath(path))
 			st := map[string]any{
 				"config": path, "relay": cfg.Relay, "site": cfg.Site, "relay_key": cfg.RelayKey,
 				"secret_store": storeName(cfg), "token_stored": terr == nil, "killed": kerr == nil,
-				"resources": cfg.Decls(),
+				"resources": cfg.Decls(), "tls_fingerprint": fp,
 			}
 			if asJSON {
 				return json.NewEncoder(os.Stdout).Encode(st)
@@ -333,6 +343,8 @@ func newConnectStatusCmd() *cobra.Command {
 				term.Red.Println("  Kill switch ENGAGED — connector will not connect (tunr connect resume)")
 			}
 			fmt.Printf("  Resources %d\n", len(cfg.Resources))
+			fmt.Printf("  E2E TLS   sha256 %s\n", fp)
+			term.Dim.Println("            Give this to vendors out of band so they can verify the connector they reach.")
 			return nil
 		},
 	}

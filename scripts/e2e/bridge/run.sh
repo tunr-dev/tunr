@@ -152,6 +152,11 @@ DSN=$(agent 'grep postgresql:// /tmp/dsn.txt')
 [[ $DSN == postgresql://agent:*@127.0.0.1:15432/* ]] || fail "dsn = '$DSN'"
 grep -q owner-password <<<"$DSN" && fail "DSN contains the database password"
 pass "tunr access printed a local DSN; no database credential in it"
+agent "psql '$DSN' -tAc 'select 1' >/dev/null"
+agent 'grep -q "end-to-end encrypted" /tmp/dsn.txt' || fail "stream was not end-to-end encrypted: $(agent 'cat /tmp/dsn.txt /tmp/pg.log')"
+FP=$(api "$CJ" GET /orgs/acme/sites | jq -r '.sites[0].tls_fingerprint')
+[[ ${#FP} == 64 ]] || fail "site TLS fingerprint not published: $FP"
+pass "stream is end-to-end TLS to the connector (relay carries ciphertext); site fingerprint ${FP:0:16}…"
 N=$(agent "psql '$DSN' -tAc 'select count(*) from fatura where tutar > 0'")
 [[ $N == 42 ]] || fail "select through pgproxy = '$N'"
 pass "SELECT through the read-only proxy: $N invoices"

@@ -76,6 +76,7 @@ type ConnectorHub struct {
 
 type connSession struct {
 	siteID, orgID string
+	tlsFP         string // connector's end-to-end TLS certificate sha256, "" if unsupported
 	out           chan Message
 	done          chan struct{}
 	once          sync.Once
@@ -107,6 +108,16 @@ func (h *ConnectorHub) Online(siteID string) bool {
 	defer h.mu.Unlock()
 	_, ok := h.sessions[siteID]
 	return ok
+}
+
+// SiteTLS returns the attached connector's end-to-end TLS fingerprint.
+func (h *ConnectorHub) SiteTLS(siteID string) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if s, ok := h.sessions[siteID]; ok {
+		return s.tlsFP
+	}
+	return ""
 }
 
 // Send queues m for siteID's connector. It never blocks: a connector that
@@ -179,7 +190,7 @@ func (h *ConnectorHub) ServeConnect(w http.ResponseWriter, r *http.Request) {
 	sctx, scancel := context.WithTimeout(context.Background(), dbTimeout)
 	resources, err := h.db.SyncSiteResources(sctx, site.OrgID, site.ID, toDecls(hello.Resources))
 	if err == nil {
-		err = h.db.SetSiteOnline(sctx, site.ID, hello.ConnectorVersion)
+		err = h.db.SetSiteOnline(sctx, site.ID, hello.ConnectorVersion, hello.TLSCertSHA256)
 	}
 	scancel()
 	if err != nil {
@@ -194,7 +205,7 @@ func (h *ConnectorHub) ServeConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess := &connSession{
-		siteID: site.ID, orgID: site.OrgID,
+		siteID: site.ID, orgID: site.OrgID, tlsFP: hello.TLSCertSHA256,
 		out:  make(chan Message, sessionQueueLen),
 		done: make(chan struct{}),
 	}
@@ -239,6 +250,9 @@ func readHello(conn *websocket.Conn) (*HelloData, error) {
 	}
 	if len(hello.ConnectorVersion) > 64 {
 		return nil, errors.New("connector_version too long")
+	}
+	if hello.TLSCertSHA256 != "" && !hex64.MatchString(hello.TLSCertSHA256) {
+		return nil, errors.New("tls_cert_sha256 must be 64 lowercase hex characters")
 	}
 	seen := map[string]bool{}
 	for _, res := range hello.Resources {
