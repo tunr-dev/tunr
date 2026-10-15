@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -343,5 +344,45 @@ func TestCloudUpstream_CrawlerStartsClockOnUnseenApp(t *testing.T) {
 
 	if up.LastSeen().IsZero() {
 		t.Fatal("crawler left lastSeen zero, so the sweeper would never sleep the app")
+	}
+}
+
+// A slow request pins the app for its whole duration and restarts the idle
+// clock when it ends.
+func TestCloudUpstream_LongRequestPinsApp(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	started := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	defer unblock() // runs before Close: a failed assertion must not leave the handler blocked
+	target, _ := url.Parse(upstream.URL)
+	up := NewCloudUpstream("a_slow", target, []byte("s"),
+		wakerFunc(func(context.Context, string) (string, error) { return "", nil }), nil)
+	up.WakeTimeout = 5 * time.Second
+
+	done := make(chan struct{})
+	go func() {
+		up.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "http://reports.tunr.sh/export", nil))
+		close(done)
+	}()
+	<-started
+	if !up.Pinned() {
+		t.Fatal("app not pinned while a request is in flight")
+	}
+	before := up.LastSeen()
+	time.Sleep(20 * time.Millisecond)
+	unblock()
+	<-done
+	if up.Pinned() {
+		t.Fatal("app still pinned after the request ended")
+	}
+	if !up.LastSeen().After(before) {
+		t.Fatal("idle clock not restarted when the request ended")
 	}
 }
