@@ -252,12 +252,21 @@ func TestProxyQPS(t *testing.T) {
 	ctx := context.Background()
 	limited := 0
 	for i := 0; i < 6; i++ {
-		if _, err := c.Exec(ctx, "SELECT 1", pgx.QueryExecModeSimpleProtocol); pgCode(err) == "53400" {
+		_, err := c.Exec(ctx, "SELECT 1", pgx.QueryExecModeSimpleProtocol)
+		if pgCode(err) == "53400" {
+			if i < 2 {
+				t.Fatalf("query %d of a fresh session was rate limited (QPS=2 allows a burst of 2)", i+1)
+			}
 			limited++
 		}
 	}
 	if limited == 0 {
 		t.Error("QPS=2 never limited 6 back-to-back queries")
+	}
+	// A new connection with QPS=1 can run its first query at once.
+	c2 := e.connect(t, Limits{QPS: 1})
+	if _, err := c2.Exec(ctx, "SELECT 1", pgx.QueryExecModeSimpleProtocol); err != nil {
+		t.Errorf("first query on a QPS=1 session: %v", err)
 	}
 }
 

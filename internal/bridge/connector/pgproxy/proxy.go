@@ -105,8 +105,9 @@ func Serve(ctx context.Context, client net.Conn, cfg Config) error {
 		return err
 	}
 
+	// The QPS bucket starts full: a fresh session may burst up to QPS queries.
 	s := &session{cfg: cfg, be: be, fe: hj.Frontend, txStatus: 'I',
-		stmts: map[string]Verdict{}, portals: map[string]string{}, bucketAt: time.Now()}
+		stmts: map[string]Verdict{}, portals: map[string]string{}, bucket: float64(cfg.Limits.QPS), bucketAt: time.Now()}
 	errc := make(chan error, 2)
 	go func() { errc <- s.fromClient() }()
 	go func() { errc <- s.fromServer() }()
