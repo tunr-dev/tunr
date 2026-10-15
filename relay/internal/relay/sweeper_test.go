@@ -113,6 +113,27 @@ func TestSweepOnceNeverSleepsPinnedApp(t *testing.T) {
 	}
 }
 
+// A request that is still being served (say a hosted agent working through a
+// cron trigger for minutes) must keep the app awake even though its start
+// time is long past the idle threshold.
+func TestSweepOnceNeverSleepsAppWithRequestInFlight(t *testing.T) {
+	store := NewRouteStore()
+	up := newTestUpstream("a_busy", 10*time.Minute)
+	up.inflight.Add(1)
+	store.SetCloud("busy", up)
+
+	f := &fakeSleeper{}
+	sweepOnce(context.Background(), store, f, 45*time.Second, 20*time.Minute)
+	if slept, stopped := f.counts(); slept != 0 || stopped != 0 {
+		t.Fatalf("app with a request in flight was touched: slept=%d stopped=%d", slept, stopped)
+	}
+	up.inflight.Add(-1)
+	sweepOnce(context.Background(), store, f, 45*time.Second, 20*time.Minute)
+	if slept, _ := f.counts(); slept != 1 {
+		t.Fatalf("idle app was not slept once the request ended: slept=%d", slept)
+	}
+}
+
 // An app never served since the relay learned of it (fresh deploy, or any app
 // after a relay restart) must not be slept on sight — a zero lastSeen reads as
 // infinitely idle — but it must not be skipped forever either, or an app that

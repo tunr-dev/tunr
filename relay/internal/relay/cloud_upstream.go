@@ -86,6 +86,11 @@ type CloudUpstream struct {
 	// the sweeper must not put the app to sleep: freezing a container mid-stream
 	// hangs every attached client.
 	pins atomic.Int64
+	// inflight counts ordinary requests still being served. A long request
+	// (a hosted agent working through a cron trigger, a slow report) touches
+	// the idle clock only when it *starts*; without this the sweeper could
+	// freeze the container mid-request once the idle threshold passes.
+	inflight atomic.Int64
 }
 
 // SetSleepState records the exact state the sweeper drove the app into.
@@ -94,9 +99,10 @@ func (u *CloudUpstream) SetSleepState(s SleepState) { u.state.Store(int32(s)) }
 // SleepState reports the app's last known lifecycle state.
 func (u *CloudUpstream) SleepState() SleepState { return SleepState(u.state.Load()) }
 
-// Pinned reports whether a long-lived connection is currently open. The sweeper
-// skips pinned apps entirely.
-func (u *CloudUpstream) Pinned() bool { return u.pins.Load() > 0 }
+// Pinned reports whether a long-lived connection or any request is currently
+// open. The sweeper skips pinned apps entirely: freezing a container mid-request
+// is never right.
+func (u *CloudUpstream) Pinned() bool { return u.pins.Load() > 0 || u.inflight.Load() > 0 }
 
 // NewCloudUpstream builds a CloudUpstream with a 30s default wake budget.
 func NewCloudUpstream(appID string, target *url.URL, secret []byte, wake Waker, freeze FreezeCache) *CloudUpstream {
@@ -175,6 +181,16 @@ func (u *CloudUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// permanently out of reach, and a crawler would do the same.
 	if class != ActivityProbe && class != ActivityCrawl {
 		u.touch()
+	}
+
+	// Ordinary requests hold the app awake while in flight and restart the
+	// idle clock when they finish, so a long request isn't idle time.
+	if class == ActivityNormal {
+		u.inflight.Add(1)
+		defer func() {
+			u.inflight.Add(-1)
+			u.touch()
+		}()
 	}
 
 	// A crawler wakes the app without touching the clock, so the sweeper could
