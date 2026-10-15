@@ -490,3 +490,71 @@ func (db *DB) GetSessionMeta(ctx context.Context, sessionID string) (*SessionMet
 	}
 	return &m, nil
 }
+
+// BridgeStats is the database half of the bridge metrics.
+type BridgeStats struct {
+	ActiveSites7d   int            // sites with ≥1 authorised stream in 7 days (north star)
+	GrantsByStatus  map[string]int // all grants by status
+	Queries         map[bool]int   // query summaries by blocked
+	ApprovalSeconds []float64      // last 30 days: created → approved (human approvals)
+	FirstQuerySecs  []float64      // per site: site created → first query summary
+}
+
+// GetBridgeStats aggregates the metrics the relay exposes.
+func (db *DB) GetBridgeStats(ctx context.Context) (*BridgeStats, error) {
+	st := &BridgeStats{GrantsByStatus: map[string]int{}, Queries: map[bool]int{}}
+	if err := db.pool.QueryRow(ctx, `
+		SELECT count(DISTINCT r.site_id) FROM access_sessions s
+		JOIN grants g ON g.id = s.grant_id JOIN resources r ON r.id = g.resource_id
+		WHERE s.opened_at > now() - interval '7 days'`).Scan(&st.ActiveSites7d); err != nil {
+		return nil, err
+	}
+	rows, err := db.pool.Query(ctx, `SELECT status, count(*) FROM grants GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var s string
+		var n int
+		if err := rows.Scan(&s, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		st.GrantsByStatus[s] = n
+	}
+	rows.Close()
+	rows, err = db.pool.Query(ctx, `SELECT blocked, count(*) FROM access_queries GROUP BY blocked`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var b bool
+		var n int
+		if err := rows.Scan(&b, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		st.Queries[b] = n
+	}
+	rows.Close()
+	col := func(q string) ([]float64, error) {
+		rows, err := db.pool.Query(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowTo[float64])
+	}
+	if st.ApprovalSeconds, err = col(`
+		SELECT EXTRACT(EPOCH FROM (approved_at - created_at))::float8 FROM grants
+		WHERE approved_at IS NOT NULL AND approved_by IS NOT NULL AND created_at > now() - interval '30 days'`); err != nil {
+		return nil, err
+	}
+	if st.FirstQuerySecs, err = col(`
+		SELECT EXTRACT(EPOCH FROM (min(q.created_at) - si.created_at))::float8
+		FROM sites si JOIN resources r ON r.site_id = si.id JOIN grants g ON g.resource_id = r.id
+		JOIN access_sessions s ON s.grant_id = g.id JOIN access_queries q ON q.session_id = s.id AND NOT q.blocked
+		GROUP BY si.id, si.created_at`); err != nil {
+		return nil, err
+	}
+	return st, nil
+}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -55,6 +56,8 @@ type Client struct {
 	// terminate end-to-end TLS.
 	TLSFingerprint string
 
+	connected atomic.Bool
+
 	// Tunables (tests shorten them).
 	HelloTimeout time.Duration
 	ReadTimeout  time.Duration
@@ -82,6 +85,9 @@ func (c *Client) defaults() {
 		c.Streams = refuseAll{}
 	}
 }
+
+// Connected reports whether a session with the relay is up right now.
+func (c *Client) Connected() bool { return c.connected.Load() }
 
 // Killed reports whether the local kill switch is engaged.
 func (c *Client) Killed() bool {
@@ -212,6 +218,8 @@ func (c *Client) session(ctx context.Context, pin ed25519.PublicKey) error {
 	}
 	c.Logf("connected: site %s (%s), %d resources", w.SiteName, w.SiteID, len(w.Resources))
 	c.Streams.Ready(w)
+	c.connected.Store(true)
+	defer c.connected.Store(false)
 	if c.OnReady != nil {
 		c.OnReady(w)
 	}

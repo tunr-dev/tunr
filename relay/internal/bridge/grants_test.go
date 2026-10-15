@@ -486,3 +486,40 @@ func TestAuditExportCSV(t *testing.T) {
 	}
 	e.call(e.member, "GET", "/orgs/acme/audit/export", nil, 403, nil)
 }
+
+func TestMetricsEndpoint(t *testing.T) {
+	e := newP4(t)
+	e.s.cfg.MetricsToken = "m-token"
+	mux := http.NewServeMux()
+	e.s.RegisterRoutes(mux)
+	e.srv.Config.Handler = mux
+	gid := e.approveRW()
+	a := e.openStream()
+	e.call(e.owner, "POST", "/orgs/acme/grants/"+gid+"/revoke", nil, 200, nil)
+	a.Close()
+
+	get := func(tok string) (int, string) {
+		req, _ := http.NewRequest("GET", e.srv.URL+"/api/v1/bridge/metrics", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, _ := get("wrong"); code != 404 {
+		t.Errorf("metrics without the token: %d", code)
+	}
+	code, body := get("m-token")
+	for _, want := range []string{"tunr_bridge_sites_online 1", "tunr_bridge_active_sites_7d 1", `tunr_bridge_grants{status="revoked"} 1`,
+		"tunr_bridge_kill_latency_seconds_count 1", "tunr_bridge_time_to_first_query_seconds_count", "tunr_bridge_grant_approval_seconds_count 1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics missing %q:\n%s", want, body)
+		}
+	}
+	if code != 200 {
+		t.Fatalf("metrics: %d", code)
+	}
+}

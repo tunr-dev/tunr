@@ -22,14 +22,15 @@ const EnvPublicURL = "TUNR_BRIDGE_PUBLIC_URL"
 
 // Config holds the bridge settings read at boot.
 type Config struct {
-	Enabled    bool
-	SigningKey string // TUNR_GRANT_SIGNING_KEY
-	PublicURL  string
-	Issuer     string // grant JWT iss; the relay domain
-	DevMode    bool   // allows an ephemeral signing key
-	ResendKey  string // RESEND_API_KEY: grant e-mails (unset → logged only)
-	MailFrom   string // RESEND_FROM
-	PortalURL  string // TUNR_BRIDGE_PORTAL_URL: deep links in e-mails
+	Enabled      bool
+	SigningKey   string // TUNR_GRANT_SIGNING_KEY
+	PublicURL    string
+	Issuer       string // grant JWT iss; the relay domain
+	DevMode      bool   // allows an ephemeral signing key
+	ResendKey    string // RESEND_API_KEY: grant e-mails (unset → logged only)
+	MailFrom     string // RESEND_FROM
+	PortalURL    string // TUNR_BRIDGE_PORTAL_URL: deep links in e-mails
+	MetricsToken string // TUNR_METRICS_TOKEN: enables /api/v1/bridge/metrics
 }
 
 // ConfigFromEnv reads the bridge config through getenv (os.Getenv in main,
@@ -52,14 +53,15 @@ func ConfigFromEnv(getenv func(string) string) Config {
 		portal = "https://app." + domain + "/bridge"
 	}
 	return Config{
-		Enabled:    flag(EnvEnabled),
-		SigningKey: getenv(auth.EnvGrantSigningKey),
-		PublicURL:  strings.TrimRight(public, "/"),
-		Issuer:     domain,
-		DevMode:    flag("TUNR_DEV_MODE"),
-		ResendKey:  getenv("RESEND_API_KEY"),
-		MailFrom:   getenv("RESEND_FROM"),
-		PortalURL:  strings.TrimRight(portal, "/"),
+		Enabled:      flag(EnvEnabled),
+		SigningKey:   getenv(auth.EnvGrantSigningKey),
+		PublicURL:    strings.TrimRight(public, "/"),
+		Issuer:       domain,
+		DevMode:      flag("TUNR_DEV_MODE"),
+		ResendKey:    getenv("RESEND_API_KEY"),
+		MailFrom:     getenv("RESEND_FROM"),
+		PortalURL:    strings.TrimRight(portal, "/"),
+		MetricsToken: getenv(EnvMetricsToken),
 	}
 }
 
@@ -82,6 +84,7 @@ type Server struct {
 	logins *loginLimiter
 
 	apiLimit    *limiter // per user / agent token
+	killLatency *histogram
 	deployer    AgentAppDeployer
 	hosted      *hostedCache
 	dispatchVia Dispatcher
@@ -124,6 +127,7 @@ func New(cfg Config, deps Deps) (*Server, error) {
 	// 20 req/s sustained, bursts of 60: generous for the portal's polling and
 	// an agent's tool calls, a wall for loops. Stream opens: 10/s, burst 30.
 	s.apiLimit = newLimiter(20, 60)
+	s.killLatency = newHistogram(killBuckets)
 	s.access.limit = newLimiter(10, 30)
 	s.notify = &Notifier{DB: deps.DB, ResendKey: cfg.ResendKey, From: cfg.MailFrom, PortalURL: cfg.PortalURL}
 	return s, nil
@@ -151,6 +155,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 		return
 	}
 	mux.HandleFunc("GET /api/v1/bridge/health", s.handleHealth)
+	if s.cfg.MetricsToken != "" {
+		mux.HandleFunc("GET /api/v1/bridge/metrics", s.handleMetrics)
+	}
 	mux.HandleFunc("GET /bridge/connect", s.hub.ServeConnect)
 	mux.HandleFunc("GET /bridge/access", s.access.ServeAccess)
 	mux.HandleFunc("GET /bridge/access/check", s.access.ServeCheck)

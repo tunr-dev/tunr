@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -15,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	xterm "golang.org/x/term"
@@ -45,8 +48,8 @@ func connectCfgPath() string {
 
 func newConnectCmd() *cobra.Command {
 	var (
-		site, token, relayKey, secretStore string
-		tokenStdin, setupOnly              bool
+		site, token, relayKey, secretStore, healthAddr string
+		tokenStdin, setupOnly                          bool
 	)
 	cmd := &cobra.Command{
 		Use:   "connect",
@@ -83,7 +86,7 @@ service with 'tunr connect install'.`,
 			} else if site != "" || relayKey != "" {
 				return errors.New("--site and --relay-key are only used together with --token (first-time setup)")
 			}
-			return connectRun(cmd.Context(), path)
+			return connectRun(cmd.Context(), path, healthAddr)
 		},
 	}
 	cmd.PersistentFlags().StringVar(&connectConfigPath, "config", "", "Connector config path (default "+connector.DefaultPath()+")")
@@ -93,6 +96,7 @@ service with 'tunr connect install'.`,
 	cmd.Flags().StringVar(&relayKey, "relay-key", "", "Relay public key to pin, from the portal (first-time setup)")
 	cmd.Flags().StringVar(&secretStore, "secret-store", "", `Where secrets live: "keychain" (default) or "file" (headless servers)`)
 	cmd.Flags().BoolVar(&setupOnly, "setup-only", false, "Write config and store the token, then exit")
+	cmd.Flags().StringVar(&healthAddr, "health-addr", "", "Serve GET /healthz here for monitoring (e.g. 127.0.0.1:9095); 200 when connected, 503 otherwise")
 
 	cmd.AddCommand(newConnectResourceCmd(), newConnectStatusCmd(), newConnectKillCmd(), newConnectResumeCmd(),
 		newConnectInstallCmd(), newConnectUninstallCmd(), newConnectPGRoleCmd())
@@ -141,7 +145,7 @@ func connectSetup(path, site, token, relayKey, secretStore string) error {
 	return nil
 }
 
-func connectRun(ctx context.Context, path string) error {
+func connectRun(ctx context.Context, path, healthAddr string) error {
 	cfg, err := connector.Load(path)
 	if err != nil {
 		return err
@@ -177,6 +181,11 @@ func connectRun(ctx context.Context, path string) error {
 		OnReady: func(w bridge.WelcomeData) {
 			term.Green.Println(fmt.Sprintf("  ● online — %d resources registered", len(w.Resources)))
 		},
+	}
+	if healthAddr != "" {
+		if err := serveHealth(ctx, healthAddr, cfg.Site, cl, streams); err != nil {
+			return err
+		}
 	}
 	err = cl.Run(ctx)
 	if errors.Is(err, context.Canceled) {
@@ -590,4 +599,27 @@ func readPassword(fromStdin bool, prompt string) (string, error) {
 		return "", errors.New("empty password")
 	}
 	return string(b), nil
+}
+
+// serveHealth exposes the connector's state for local monitoring. It never
+// reports resources' addresses or secrets.
+func serveHealth(ctx context.Context, addr, site string, cl *connector.Client, m *connector.Manager) error {
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("health listener: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		st := map[string]any{"site": site, "connected": cl.Connected(), "killed": cl.Killed(),
+			"streams": m.Count(), "version": tunnel.Version}
+		w.Header().Set("Content-Type", "application/json")
+		if !cl.Connected() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		_ = json.NewEncoder(w).Encode(st)
+	})
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() { <-ctx.Done(); _ = srv.Close() }()
+	go func() { _ = srv.Serve(l) }()
+	return nil
 }

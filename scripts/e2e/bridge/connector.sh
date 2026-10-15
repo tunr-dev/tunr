@@ -14,4 +14,4 @@ tunr connect pg-role --config "$cfg" --database logo --tables fatura,stok --reso
 PGPASSWORD="$CUSTOMER_PG_OWNER_PASSWORD" psql -q -v ON_ERROR_STOP=1 -h customer-pg -U postgres -f /tmp/pg-role.sql
 rm -f /tmp/pg-role.sql
 
-exec tunr connect --config "$cfg"
+exec tunr connect --config "$cfg" --health-addr 127.0.0.1:9095

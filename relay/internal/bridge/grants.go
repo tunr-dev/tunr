@@ -369,6 +369,7 @@ func (s *Server) revokeGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cutGrant(g.ID, g.SiteID, "revoked")
+	s.observeKill(time.Since(start))
 	s.grantAudit(r.Context(), g, userFrom(r).ID, audit.ActionBridgeGrantRevoked,
 		map[string]any{"by_org": m.ID, "cut_ms": time.Since(start).Milliseconds()})
 	s.notify.Grant("grant.revoked", g)
@@ -433,6 +434,7 @@ func (s *Server) killSite(w http.ResponseWriter, r *http.Request) {
 	closed := s.access.KillSite(site.ID, "killed")
 	_ = s.hub.Send(site.ID, msg(MsgKill, KillData{GrantID: "*"}))
 	elapsed := time.Since(start)
+	s.observeKill(elapsed)
 	for i := range revoked {
 		s.notify.Grant("grant.revoked", &revoked[i])
 	}

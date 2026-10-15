@@ -74,6 +74,9 @@ done
 RES=$(api "$CJ" GET /orgs/acme/resources | jq -r '[.resources[].name] | sort | join(",")')
 [[ $RES == erp-db,nas ]] || fail "resources = $RES"
 pass "site online; resources announced: $RES"
+H=$($DC exec -T connector curl -fsS 127.0.0.1:9095/healthz) || fail "connector /healthz"
+[[ $(jq -r .connected <<<"$H") == true ]] || fail "healthz: $H"
+pass "connector /healthz reports connected"
 DUMP=$($DC exec -T relay-db pg_dump -U tunr tunr)
 grep -qE 'customer-echo|customer-pg|7777' <<<"$DUMP" && fail "a target address reached the relay database"
 pass "no target address anywhere in the relay database"
