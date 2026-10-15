@@ -262,7 +262,7 @@ func PinnedTLS(fp string) *tls.Config {
 	return &tls.Config{
 		MinVersion:         tls.VersionTLS13,
 		ServerName:         "tunr-site",
-		InsecureSkipVerify: true, // replaced by the pin below: no CA is involved
+		InsecureSkipVerify: true, // #nosec G402 -- no CA: VerifyConnection pins the exact certificate
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) == 0 {
 				return errors.New("connector sent no certificate")

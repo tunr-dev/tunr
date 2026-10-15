@@ -83,6 +83,10 @@ func (s *Server) humanAuth(next http.HandlerFunc) http.Handler {
 			apiError(w, http.StatusUnauthorized, "invalid_token", "invalid or expired token")
 			return
 		}
+		if ok, wait := s.apiLimit.allow("u:"+claims.UserID, time.Now()); !ok {
+			rateLimited(w, wait)
+			return
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		ctx := context.WithValue(r.Context(), ctxUser, user{ID: claims.UserID, Email: claims.Email, Plan: claims.Plan})
 		next(w, r.WithContext(ctx))

@@ -271,6 +271,10 @@ func (s *Server) exchangeBootstrap(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	if ok, wait := s.apiLimit.allow("b:"+sha256hex(in.Bootstrap)[:16], time.Now()); !ok {
+		rateLimited(w, wait)
+		return
+	}
 	if !strings.HasPrefix(in.Bootstrap, "tunr_boot_") {
 		apiError(w, http.StatusUnauthorized, "invalid_bootstrap", "invalid bootstrap secret")
 		return
@@ -398,6 +402,8 @@ func validSlug(s string) bool { return slugRe.MatchString(s) && !strings.Contain
 
 // triggerRequest builds the request an agent receives for a trigger.
 func (s *Server) triggerRequest(ctx context.Context, app db.HostedApp, kind, name, path, contentType string, body []byte) *http.Request {
+	// Never sent over the network: handed to the in-process cloud proxy, which
+	// routes by Host to the agent's own container. #nosec G704
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+app.Name+"."+s.cfg.Issuer+path, bytes.NewReader(body))
 	req.Host = app.Name + "." + s.cfg.Issuer
 	if contentType == "" {

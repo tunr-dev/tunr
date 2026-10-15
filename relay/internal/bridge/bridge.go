@@ -81,6 +81,7 @@ type Server struct {
 	notify *Notifier
 	logins *loginLimiter
 
+	apiLimit    *limiter // per user / agent token
 	deployer    AgentAppDeployer
 	hosted      *hostedCache
 	dispatchVia Dispatcher
@@ -120,6 +121,10 @@ func New(cfg Config, deps Deps) (*Server, error) {
 	}
 	s.hub = NewConnectorHub(deps.DB, s.signer.KeyString())
 	s.access = NewAccess(deps.DB, deps.JWT, s.signer, s.hub)
+	// 20 req/s sustained, bursts of 60: generous for the portal's polling and
+	// an agent's tool calls, a wall for loops. Stream opens: 10/s, burst 30.
+	s.apiLimit = newLimiter(20, 60)
+	s.access.limit = newLimiter(10, 30)
 	s.notify = &Notifier{DB: deps.DB, ResendKey: cfg.ResendKey, From: cfg.MailFrom, PortalURL: cfg.PortalURL}
 	return s, nil
 }

@@ -78,6 +78,7 @@ type Access struct {
 	perToken map[string]int
 
 	audits chan auditJob
+	limit  *limiter // stream opens per agent token
 }
 
 type auditJob struct {
@@ -140,6 +141,11 @@ func (a *Access) authorize(r *http.Request) (*authz, *authzErr) {
 	claims, err := a.jwt.VerifyAgent(tok)
 	if err != nil {
 		return nil, &authzErr{http.StatusUnauthorized, "invalid_token", "invalid or expired agent token"}
+	}
+	if a.limit != nil {
+		if ok, _ := a.limit.allow("s:"+claims.TokenID(), time.Now()); !ok {
+			return nil, &authzErr{http.StatusTooManyRequests, "rate_limited", "too many stream opens; slow down"}
+		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), dbTimeout)
 	defer cancel()

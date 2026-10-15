@@ -85,6 +85,10 @@ func (s *Server) agentAuth(next func(http.ResponseWriter, *http.Request, *auth.A
 			apiError(w, http.StatusUnauthorized, "invalid_token", "invalid or expired agent token")
 			return
 		}
+		if ok, wait := s.apiLimit.allow("a:"+c.TokenID(), time.Now()); !ok {
+			rateLimited(w, wait)
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), dbTimeout)
 		usable, err := s.db.AgentTokenUsable(ctx, c.OrgID, c.AgentID(), c.TokenID())
 		cancel()
