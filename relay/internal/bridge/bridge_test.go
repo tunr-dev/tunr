@@ -76,6 +76,9 @@ func TestEnabledHealth(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), signer.KeyString()) {
 		t.Errorf("health does not expose relay key: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"hosted_agents":false`) {
+		t.Errorf("health does not report hosted agents off: %s", rec.Body.String())
+	}
 
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/bridge/health", nil))

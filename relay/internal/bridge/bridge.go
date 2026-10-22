@@ -169,5 +169,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "relay_key": s.RelayKey()})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok", "relay_key": s.RelayKey(), "hosted_agents": s.deployer != nil,
+	})
 }
