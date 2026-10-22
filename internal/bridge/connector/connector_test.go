@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -283,7 +284,7 @@ func TestConfigValidation(t *testing.T) {
 	if err := good().Save(path); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(path); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // no Unix modes on Windows
 		t.Errorf("config mode %o", st.Mode().Perm())
 	}
 	if c, err := Load(path); err != nil || c.Resources[0].Target != "10.0.0.5:5432" {
