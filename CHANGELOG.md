@@ -41,6 +41,14 @@ network through one outbound-only connector. Tunnels and deploy are unchanged.
   site TLS). Re-runnable, like every migration.
 
 ### Fixed
+- **relay:** the relay's own routes (`/api/v1/*`, `/auth/*`, `/v1/apps`, and
+  with the bridge on `/portal/` and `/bridge/*`) shadowed the same paths on
+  every tunnel and app. They now answer only on the relay's own hosts.
+  `relay`, `bridge`, `app`, `www` and `api` are reserved names.
+- **self-host:** `docker compose up` works as documented: a Caddyfile with
+  on-demand certificates (gated by `/api/v1/tls/ask`), `.env.example`, and the
+  schema applied on first start.
+- **cli:** `tunr access --require-e2e` was documented but not registered.
 - **relay:** a request still being served no longer lets the sweeper pause its
   app, and finishing it restarts the idle clock (#8).
 - **relay:** browser TCP connections are refused before the WebSocket upgrade
