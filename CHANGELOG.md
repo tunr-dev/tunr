@@ -3,6 +3,54 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## v0.8.0 — unreleased
+
+tunr's headline is now **Agent Bridge**: AI vendors' agents get read-only,
+time-boxed, customer-approved and audited access to data inside a customer's
+network through one outbound-only connector. Tunnels and deploy are unchanged.
+
+### Added
+- **cli:** `tunr connect` runs the site connector inside the customer's network
+  (outbound only), with `resource add`, `pg-role` (the SQL for a `SELECT`-only
+  role), `install`/`uninstall` as a hardened system service, `status`, and a
+  local kill switch (`kill`/`resume`) that holds across restarts.
+- **cli:** the connector proxies Postgres read-only: a `SELECT`-only role,
+  read-only transactions, a statement timeout and a statement classifier;
+  writes fail with SQLSTATE 42501 and the session stays usable. Row, byte and
+  rate limits per grant.
+- **cli:** `tunr access request|list|status` and `tunr access <org>/<resource>`
+  open an authorised local port to a resource, end-to-end TLS to the connector
+  pinned to the site's certificate (the fingerprint is logged so it can be
+  compared). The agent's DSN carries a per-process secret, never a database
+  password.
+- **cli:** `tunr agent create|token|deploy|trigger`; MCP tools
+  `tunr_list_resources`, `tunr_request_access`, `tunr_access_status`,
+  `tunr_open_access`, `tunr_close_access`.
+- **relay:** bridge API under `/api/v1/bridge/*` (orgs, members, vendor links,
+  sites, resources, agents and tokens, grants with approve/deny/revoke and
+  automatic expiry, sessions and query summaries, audit log with CSV export,
+  signed webhooks, org settings, site kill switch), per-principal rate limits,
+  a metrics endpoint, and an embedded portal at `/portal/`. Off unless
+  `TUNR_BRIDGE_ENABLED=1`; requires `DATABASE_URL` and
+  `TUNR_GRANT_SIGNING_KEY`.
+- **relay:** hosted agents (private apps woken by cron or signed webhooks, with
+  hourly identity tokens and a `/data` volume), opt-in with
+  `TUNR_BRIDGE_HOSTED_AGENTS=1`. Early access: egress and CPU quotas are not
+  enforced yet, and the volume size is not capped by the filesystem.
+- **relay:** migrations `005`–`009` (orgs, bridge, webhooks, hosted agents,
+  site TLS). Re-runnable, like every migration.
+
+### Fixed
+- **relay:** a request still being served no longer lets the sweeper pause its
+  app, and finishing it restarts the idle clock (#8).
+- **relay:** browser TCP connections are refused before the WebSocket upgrade
+  (#10); fresh databases get `users.paddle_customer_id` (#7).
+
+### Security
+- **build:** golang.org/x/text v0.41.0 (GO-2026-6629) in both modules (#9).
+- **build:** the production runner image builds with Go 1.27 (was 1.22) and
+  for amd64 and arm64.
+
 ## v0.7.0 — 2026-10-02
 
 ### Security

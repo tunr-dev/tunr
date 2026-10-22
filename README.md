@@ -110,14 +110,15 @@ npm install @tunr/cli     # Node.js
 | **End-to-end TLS** | Between `tunr access` and the connector, pinned to the connector's certificate. |
 | **Audit** | Every grant decision, session and query summary, exportable as CSV. |
 | **Cut access** | Revoke closes live connections in milliseconds; the site kill switch revokes everything. |
-| **Hosted agents** | `tunr agent deploy` runs an agent on tunr, private, woken by cron or signed webhooks, with its identity issued automatically and a `/data` volume. |
-| **Portal** | `/portal/` on the relay: approvals, sites, vendors, activity, agents, members, settings. |
+| **Hosted agents** *(early access)* | `tunr agent deploy` runs an agent on tunr, private, woken by cron or signed webhooks, with its identity issued automatically and a `/data` volume. Off on tunr.sh until egress and CPU quotas land; self-hosters enable it with `TUNR_BRIDGE_HOSTED_AGENTS=1`. |
+| **Dashboard** | [app.tunr.sh](https://app.tunr.sh): approvals inbox, sites, resources, grants and their queries, audit + CSV export, agents and tokens, webhooks, org settings. Self-hosted relays ship the same flows as a built-in portal at `/portal/`. |
 
 What it guarantees, how, and what it doesn't: **[docs/bridge/security.md](docs/bridge/security.md)**.
 Getting started: [customer](docs/bridge/quickstart-customer.md) · [vendor](docs/bridge/quickstart-vendor.md) · protocol: [docs/protocol/bridge.md](docs/protocol/bridge.md).
 
-> **Status: preview.** End-to-end tested (two docker suites in CI), not yet
-> in production use. Postgres and raw TCP resources today; MySQL/MSSQL later.
+> **Status: preview.** Live on tunr.sh and end-to-end tested (two docker
+> suites in CI); expect sharp edges. Postgres and raw TCP resources today;
+> MySQL/MSSQL later.
 
 ---
 
@@ -558,7 +559,7 @@ means there is no code yet.
 | | Status |
 |---|---|
 | **Agent Bridge**: connector, grants, read-only Postgres proxy, end-to-end TLS, portal, MCP tools | 🚧 Preview |
-| **Hosted agents** (`tunr agent deploy`, cron/webhook triggers, `/data` volume) | 🚧 Preview |
+| **Hosted agents** (`tunr agent deploy`, cron/webhook triggers, `/data` volume) | 🧪 Early access (off on tunr.sh) |
 | Bridge: MySQL / MSSQL proxies, HTTP resources, white-label connector for vendors | 📋 Planned |
 | Bridge: volume size quotas, egress blocklist for hosted agents | 📋 Planned |
 | HTTP/WS, TCP, UDP, TLS tunnels | ✅ Stable |

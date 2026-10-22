@@ -7,7 +7,8 @@ on 10–15 minutes.
 
 ## 1. Sign in and create your organization
 
-Open the portal (`https://<relay>/portal/`), sign in with your work e-mail
+Open the dashboard (<https://app.tunr.sh>; on a self-hosted relay, the portal
+at `https://<relay>/portal/`), sign in with your work e-mail
 and create an organization of type **Customer**. Its slug (e.g. `acme`) is
 the first half of every resource address (`acme/erp-db`).
 

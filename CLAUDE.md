@@ -140,6 +140,8 @@ v0.7.x line. Decision record: `docs/adr/0001-agent-bridge.md`. Wire contract:
   (`connector/`, `connector/pgproxy/`, `access/`). Keep the module boundary.
 - Everything bridge-related on the relay is behind `TUNR_BRIDGE_ENABLED=1`. With the
   flag off nothing is mounted and behavior is unchanged (`bridge_test.go` guards this).
+  Hosted agents additionally need `TUNR_BRIDGE_HOSTED_AGENTS=1` (and a runner with
+  `TUNR_AGENT_BINARY`); without it the deploy endpoint answers 503 `unavailable`.
 - Migrations are applied by `update.sh` re-running every `relay/migrations/*.sql`
   on each deploy — the relay does not run them. Every statement must be re-runnable.
 - Audit goes to the existing `audit_log` table (plus `org_id`); there is no

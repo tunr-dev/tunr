@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -165,8 +166,14 @@ func main() {
 	// Kapalıyken hiçbir route eklenmez; /bridge/* ve /api/v1/bridge/* eskisi
 	// gibi "/" tunnel proxy'sine düşer. Plan: docs/protocol/bridge.md.
 	controlPlane := relay.NewControlPlane(jwtAuth, database, cfg.Domain, runnerClient, scheduler)
+	// Hosted agents are opt-in on top of the bridge: they need a runner with
+	// TUNR_AGENT_BINARY, and their egress/CPU quotas are not enforced yet.
+	var agentApps bridge.AgentAppDeployer
+	if hostedAgentsEnabled(os.Getenv) {
+		agentApps = agentDeployer{controlPlane}
+	}
 	bridgeSrv, err := bridge.New(bridge.ConfigFromEnv(os.Getenv), bridge.Deps{
-		DB: database, JWT: jwtAuth, Deployer: agentDeployer{controlPlane},
+		DB: database, JWT: jwtAuth, Deployer: agentApps,
 	})
 	if err != nil {
 		logger.Fatal("agent bridge: %v", err)
@@ -175,7 +182,7 @@ func main() {
 	bridgeSrv.StartGrantSweeper(ctx)
 	bridgeSrv.StartCron(ctx)
 	if bridgeSrv.Enabled() {
-		logger.Info("agent bridge enabled: /api/v1/bridge/* (relay key %s)", bridgeSrv.RelayKey())
+		logger.Info("agent bridge enabled: /api/v1/bridge/* (relay key %s, hosted agents %v)", bridgeSrv.RelayKey(), agentApps != nil)
 	}
 
 	// ── Pivot Faz 0: control plane (/v1/apps) ──
@@ -387,6 +394,12 @@ func handleHealth() http.HandlerFunc {
 			"timestamp": time.Now().Unix(),
 		})
 	}
+}
+
+// hostedAgentsEnabled reports TUNR_BRIDGE_HOSTED_AGENTS ("1" or "true").
+func hostedAgentsEnabled(getenv func(string) string) bool {
+	v := strings.ToLower(strings.TrimSpace(getenv("TUNR_BRIDGE_HOSTED_AGENTS")))
+	return v == "1" || v == "true"
 }
 
 // agentDeployer adapts the control plane to the bridge's hosted-agent deploy.

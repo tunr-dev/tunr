@@ -59,6 +59,19 @@ tunr.sh, www.tunr.sh {
 	}
 }
 
+# Agent Bridge — the relay's bridge endpoints (connectors dial /bridge/connect,
+# agents /bridge/access) under a stable name that connector configs pin. The
+# bare host sends people to the dashboard; /portal/ stays for self-host parity.
+# Must precede the *.tunr.sh wildcard.
+bridge.tunr.sh {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	redir / https://app.tunr.sh/bridge 302
+	import to_relay
+	header -Server
+}
+
 # Wildcard tunnels — everything to relay (subdomain routing on Host). Caddy
 # handles WebSocket upgrades natively; don't add Upgrade/Connection header_up.
 *.tunr.sh {

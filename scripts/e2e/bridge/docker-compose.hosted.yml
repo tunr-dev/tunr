@@ -19,6 +19,7 @@ services:
   relay:
     environment:
       RUNNER_URL: http://runner:9091
+      TUNR_BRIDGE_HOSTED_AGENTS: "1"
       RUNNER_SECRET: e2e-runner-secret
       TUNR_IDLE_SLEEP: 8s
     networks:

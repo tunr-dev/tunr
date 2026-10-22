@@ -6,7 +6,8 @@ local port to the resource, never a password. Writes to databases are refused.
 
 ## 1. Organization and agent
 
-Sign in to the portal (`https://<relay>/portal/`), create an organization of
+Sign in to the dashboard (<https://app.tunr.sh>; on a self-hosted relay, the
+portal at `https://<relay>/portal/`), create an organization of
 type **Vendor** (slug e.g. `finbot`), and tell your customer that slug — they
 allow you under **Vendors**.
 
@@ -16,7 +17,7 @@ Create an agent identity per agent or product feature. Customers see its name.
 tunr login
 tunr agent create invoice-reconciler --org finbot
 export TUNR_AGENT_TOKEN=$(tunr agent token invoice-reconciler --org finbot --ttl 24h)
-export TUNR_RELAY_URL=https://<relay>
+export TUNR_RELAY_URL=https://bridge.tunr.sh   # or your own relay
 ```
 
 ## 2. Find and request access
@@ -58,7 +59,11 @@ environment. The agent gets `tunr_list_resources`, `tunr_request_access`,
   "env": {"TUNR_AGENT_TOKEN": "…", "TUNR_RELAY_URL": "https://<relay>"}}}}
 ```
 
-## Run the agent on tunr (optional)
+## Run the agent on tunr (optional, early access)
+
+Hosted agents are off on tunr.sh until egress and CPU quotas are enforced;
+ask for access, or enable them on your own relay with
+`TUNR_BRIDGE_HOSTED_AGENTS=1` and a runner started with `TUNR_AGENT_BINARY`.
 
 ```bash
 tunr agent deploy invoice-reconciler --org finbot --volume 256 ./agent
