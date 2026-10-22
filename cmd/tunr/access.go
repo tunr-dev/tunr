@@ -29,6 +29,7 @@ func newAccessCmd() *cobra.Command {
 		port       int
 		grantID    string
 		tokenStdin bool
+		requireE2E bool
 	)
 	cmd := &cobra.Command{
 		Use:   "access CUSTOMER/RESOURCE",
@@ -58,7 +59,7 @@ approved grant. The resource's real address never reaches this machine.`,
 				return err
 			}
 			cl := &access.Client{Relay: relay, TokenFunc: ts.Token, Resource: args[0], GrantID: grantID,
-				ClientSecret: access.NewClientSecret(), Logf: func(f string, a ...any) { logger.Info(f, a...) }}
+				RequireE2E: requireE2E, ClientSecret: access.NewClientSecret(), Logf: func(f string, a ...any) { logger.Info(f, a...) }}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -94,5 +95,6 @@ approved grant. The resource's real address never reaches this machine.`,
 	cmd.Flags().IntVar(&port, "port", 0, "Local port on 127.0.0.1 (default: a free port)")
 	cmd.Flags().StringVar(&grantID, "grant", "", "Use a specific grant ID")
 	cmd.Flags().BoolVar(&tokenStdin, "token-stdin", false, "Read the agent token from stdin instead of TUNR_AGENT_TOKEN")
+	cmd.Flags().BoolVar(&requireE2E, "require-e2e", false, "Refuse connectors too old to end-to-end encrypt the stream")
 	return cmd
 }

@@ -4,6 +4,7 @@ This guide explains how to run your own tunr relay server. This is useful for:
 - Organizations that need full data sovereignty
 - Air-gapped environments
 - Custom domain routing without the tunr.sh cloud
+- Running the [Agent Bridge](#enabling-the-agent-bridge-preview) without a third-party relay in the path
 
 ## Prerequisites
 
@@ -85,6 +86,73 @@ Internet
 └──────────────────────┘
 ```
 
+## Enabling the Agent Bridge (preview)
+
+The bridge (`tunr connect` / `tunr access`, see [ARCHITECTURE.md](ARCHITECTURE.md#1-agent-bridge-preview))
+runs inside the same relay process. It is off unless you turn it on; with it
+off no bridge route is mounted and the relay behaves exactly as above.
+
+### 1. Requirements
+
+- **PostgreSQL.** The bridge has no in-memory mode: with
+  `TUNR_BRIDGE_ENABLED=1` and no `DATABASE_URL` the relay refuses to start.
+- **Migrations.** The relay does not apply migrations itself. Apply every file
+  in `relay/migrations/` in order (`001`–`004` are the base schema; `005`–`009`
+  add orgs, sites, resources, agents, grants, webhooks, hosted agents and site
+  TLS). The files are written to be re-runnable, so apply them all again after
+  every upgrade:
+
+  ```bash
+  for f in relay/migrations/*.sql; do
+    docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U tunr -d tunr < "$f"
+  done
+  ```
+
+### 2. Environment
+
+| Variable | Required | Meaning |
+|----------|----------|---------|
+| `TUNR_BRIDGE_ENABLED` | yes | `1` or `true` turns the bridge on. Any other value leaves it off. |
+| `TUNR_GRANT_SIGNING_KEY` | yes | Ed25519 key that signs grant tokens: a base64 32-byte seed (or 64-byte private key). Generate with `openssl rand -base64 32`. |
+| `TUNR_BRIDGE_PUBLIC_URL` | usually | URL connectors and agents dial, also used in portal sign-in links. Defaults to `https://relay.<TUNR_DOMAIN>`, so set it if your relay lives elsewhere, e.g. `https://tunnel.yourcompany.com`. |
+| `RESEND_API_KEY`, `RESEND_FROM` | for the portal | Sends portal sign-in links and grant e-mails through [Resend](https://resend.com). Without them grant e-mails are only logged, and nobody can sign in to the portal (except with `TUNR_DEV_MODE=1`, which returns the link in the response — development only). |
+| `TUNR_BRIDGE_PORTAL_URL` | no | Base of the links in grant e-mails (`<url>/grants/<id>`). Defaults to `https://app.<TUNR_DOMAIN>/bridge`, the hosted dashboard. With the built-in portal, set `https://tunnel.yourcompany.com/portal/#` — links then open the approvals inbox. |
+| `TUNR_METRICS_TOKEN` | no | Bearer token that enables `GET /api/v1/bridge/metrics` (and the relay's `/api/v1/density`). Unset, both routes are not mounted. |
+| `TUNR_BRIDGE_HOSTED_AGENTS` | no | `1` enables hosted agents (`tunr agent deploy`). Early access — see below. |
+
+**Keep the signing key stable and secret.** Connectors pin the relay's public
+key at install time; a new key breaks every installed connector until it is
+set up again. Anyone with the key can mint grants that connectors accept.
+The relay logs the public key (`ed25519:…`) at startup, and the portal shows
+it in each site's install command.
+
+### 3. Portal
+
+Restart the relay. The customer portal and vendor console are built in at
+`https://tunnel.yourcompany.com/portal/`: sign in by e-mail, create an
+organization, add a site, approve grants, read the audit log. Then follow the
+[customer](bridge/quickstart-customer.md) and
+[vendor](bridge/quickstart-vendor.md) quick starts with
+`--relay https://tunnel.yourcompany.com`.
+
+### 4. Hosted agents (optional, early access)
+
+Hosted agents run on the [cloud layer](#adding-the-cloud-layer-tunr-deploy)
+below, so set that up first. Then:
+
+```bash
+# relay .env
+TUNR_BRIDGE_HOSTED_AGENTS=1
+
+# runner .env — host path of a static (CGO_ENABLED=0) Linux tunr binary,
+# mounted read-only into every hosted agent
+TUNR_AGENT_BINARY=/opt/tunr/bin/tunr
+```
+
+Without `TUNR_BRIDGE_HOSTED_AGENTS=1` the deploy endpoint answers
+`503 unavailable`. Egress and CPU quotas for hosted agents are not enforced
+yet; only enable this for agents you trust.
+
 ## Adding the cloud layer (`tunr deploy`)
 
 Everything above self-hosts **tunnels**. To also run `tunr deploy` — building
@@ -149,11 +217,11 @@ After=network-online.target postgresql.service
 [Service]
 Type=simple
 User=tunr
-ExecStart=/usr/local/bin/tunr-relay \
-    --domain tunnel.yourcompany.com \
-    --port 8080
+ExecStart=/usr/local/bin/tunr-relay
 Restart=always
 RestartSec=5
+Environment=TUNR_DOMAIN=tunnel.yourcompany.com
+Environment=PORT=8080
 Environment=DATABASE_URL=postgres://tunr:tunr@localhost:5432/tunr
 Environment=TUNR_JWT_SECRET=your-secret-here
 

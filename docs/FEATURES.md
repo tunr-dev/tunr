@@ -1,8 +1,48 @@
 # Tunr — Core Features
 
-Tunr is designed to be the ultimate, zero-configuration local-to-public tunnel tool, specially crafted for developers, freelancers, and agencies ("Vibecoders"). 
+Tunr's main product is the **Agent Bridge**: it connects AI agents to data inside a customer's network — read-only, time-boxed, approved by the customer and audited — through one outbound-only connector. Tunnels (`tunr share`) and cloud deploy (`tunr deploy`, preview) remain as secondary products; tunnel features are listed further down.
 
-Here is a comprehensive list of Tunr's features:
+# Agent Bridge (preview)
+
+Status: preview. Postgres and raw TCP resources today. Command reference: [CLI.md](CLI.md#agent-bridge-preview). Guarantees and limits: [bridge/security.md](bridge/security.md).
+
+## 🔌 Connector (customer side)
+- **Outbound only:** `tunr connect` runs inside the customer's network and dials the relay over HTTPS/WebSocket. No inbound port is opened.
+- **Named resources:** Each resource has an address like `acme/erp-db`. The target address stays in the connector's local config; the relay and the vendor never learn it.
+- **Runs as a service:** `tunr connect install` (systemd on Linux, launchd on macOS), with a `--health-addr` endpoint for monitoring.
+- **Relay key pinned at install:** The connector verifies every stream's grant token against the relay key from the install command.
+- **Local kill switch:** `tunr connect kill` closes every stream and keeps the connector disconnected until `tunr connect resume`, even without the relay.
+
+## ✅ Grants & approvals
+- **Default deny:** Nothing flows without an approved, unexpired grant for this agent, this resource, this mode.
+- **Time-boxed:** Grants run from 1 minute up to the customer org's maximum (8h by default) and expire on their own.
+- **Reason required:** The agent states why it needs access; approvers read it before deciding.
+- **Two approvers for read-write:** Read-write grants (raw TCP only) need two different approvers.
+- **Optional auto-approve:** A resource can auto-approve read-only grants from one named vendor, up to a set duration.
+- **Revoke in milliseconds:** Revoking a grant closes its live connections; "Cut all access" on a site revokes every approved grant.
+- **Portal and CLI:** Approve in the web portal (`/portal/` on any relay with the bridge on) or with `tunr grants`.
+
+## 🗄️ Read-only Postgres
+- **Three layers:** a `SELECT`-only login role (`tunr connect pg-role` prints the SQL), read-only sessions with a 30 s statement timeout, and a statement classifier in the connector. Writes fail with SQLSTATE `42501`.
+- **No credentials for agents:** The connector logs in with its own stored credential. The agent's DSN only unlocks its own local port.
+- **Limits:** Rows per query, bytes and queries per second, set per resource and narrowed per grant.
+
+## 🔒 Transport
+- **End-to-end TLS 1.3** between `tunr access` and the connector, pinned to the connector's certificate fingerprint. The relay forwards ciphertext. It does not protect against an actively compromised relay — see [bridge/security.md](bridge/security.md).
+- **Short-lived credentials:** Grant tokens ≤15 min (Ed25519-signed by the relay, verified by the connector), agent tokens ≤24 h, rotatable site tokens.
+
+## 📋 Audit & notifications
+- **Audit log:** Grant requests and decisions, every session with byte counts, and a summary of every query (command, tables, rows, duration, blocked). Query text only if the customer turns it on. CSV export.
+- **E-mail and webhooks:** Grant events by e-mail to approvers and as HMAC-signed webhooks (for Slack bridges, SIEMs, etc.).
+
+## 🤖 Agents (vendor side)
+- **Agent identities:** `tunr agent create` / `tunr agent token` — separate from human accounts; customers see which agent asks.
+- **CLI and MCP:** `tunr catalog`, `tunr access request`, `tunr access` from scripts; `tunr_list_resources`, `tunr_request_access`, `tunr_access_status`, `tunr_open_access`, `tunr_close_access` from `tunr mcp`.
+- **Hosted agents (early access):** `tunr agent deploy` runs an agent on tunr, private, woken by cron (UTC) or signed webhooks, with its identity issued automatically and an optional `/data` volume. Off on tunr.sh until egress and CPU quotas are enforced; self-hosted relays enable it with `TUNR_BRIDGE_HOSTED_AGENTS=1`.
+
+# Tunnels
+
+The original tunr: expose a local port with a public HTTPS URL.
 
 ## 🚀 Core Tunneling
 - **Zero Config:** Share your local server with a public URL in `< 3 seconds`. No configs, no signup required for basic usage (`tunr share --port 3000`).

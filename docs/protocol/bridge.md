@@ -24,7 +24,7 @@ plain HTTP 401 and no upgrade.
 
 | Type | Direction | Fields | Meaning |
 | --- | --- | --- | --- |
-| `bridge_hello` | C→R | `connector_version`, `resources[] {name, kind}`, `tls_cert_sha256?` | Announce resource *names* (never addresses). Names: 3–32 chars `[a-z0-9-]`; kinds `postgres`, `tcp`, `http`; max 100. The site's resources become exactly this set (missing ones go `offline`); a name served by another site of the same org is refused (`resource_conflict`) |
+| `bridge_hello` | C→R | `connector_version`, `resources[] {name, kind}`, `tls_cert_sha256?` | Announce resource *names* (never addresses). Names: 3–32 chars `[a-z0-9-]`; kinds `postgres`, `tcp`, `http` (`http` is reserved: announced but not grantable yet, and the CLI cannot create one); max 100. The site's resources become exactly this set (missing ones go `offline`); a name served by another site of the same org is refused (`resource_conflict`) |
 | `bridge_welcome` | R→C | `site_id`, `site_name`, `relay_key`, `resources[] {name, id}` | Connector compares `relay_key` with the key from its install command and disconnects on mismatch |
 | `ping` / `pong` | R→C / C→R | — | Every 30 s; the relay drops a connector silent for 75 s |
 | `error` | R→C | `code`, `message` | Sent before a relay-initiated close: `bad_hello`, `resource_conflict`, `replaced` (a newer connector for the same site connected), `disconnected` (token rotated, site deleted) |
