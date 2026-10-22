@@ -9,8 +9,6 @@
 # To use with the CLI:
 #   tunr share -p 3000 --relay https://tunnel.yourdomain.com
 
-version: "3.9"
-
 services:
   # ─── Caddy (TLS termination + wildcard certs) ────────────────
   caddy:
@@ -36,8 +34,15 @@ services:
     restart: unless-stopped
     environment:
       TUNR_DOMAIN: ${TUNR_DOMAIN:-tunnel.localhost}
-      TUNR_JWT_SECRET: ${TUNR_JWT_SECRET:-change-me-in-production}
-      DATABASE_URL: postgres://tunr:tunr@postgres:5432/tunr?sslmode=disable
+      TUNR_JWT_SECRET: ${TUNR_JWT_SECRET:?set TUNR_JWT_SECRET in .env}
+      DATABASE_URL: postgres://tunr:${POSTGRES_PASSWORD:-tunr}@postgres:5432/tunr?sslmode=disable
+      # Agent Bridge — off unless set in .env (see .env.example).
+      TUNR_BRIDGE_ENABLED: ${TUNR_BRIDGE_ENABLED:-}
+      TUNR_GRANT_SIGNING_KEY: ${TUNR_GRANT_SIGNING_KEY:-}
+      TUNR_BRIDGE_PUBLIC_URL: ${TUNR_BRIDGE_PUBLIC_URL:-}
+      TUNR_BRIDGE_PORTAL_URL: ${TUNR_BRIDGE_PORTAL_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,10 +53,13 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: tunr
-      POSTGRES_PASSWORD: tunr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tunr}
       POSTGRES_DB: tunr
     volumes:
       - pg_data:/var/lib/postgresql/data
+      # Applied once, on a fresh volume. After upgrades re-run them by hand
+      # (docs/SELF_HOSTING.md) — every file is re-runnable.
+      - ./relay/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tunr"]
       interval: 5s

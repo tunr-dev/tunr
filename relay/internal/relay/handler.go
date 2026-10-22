@@ -212,6 +212,10 @@ func (h *Handler) ServeTunnel(w http.ResponseWriter, r *http.Request) {
 
 	// Reserved subdomain ownership check.
 	if hello.Subdomain != "" {
+		if IsSystemLabel(hello.Subdomain) {
+			writeErr(conn, "subdomain is reserved")
+			return
+		}
 		if !isAuthenticated {
 			writeErr(conn, "Custom subdomain requires login")
 			return

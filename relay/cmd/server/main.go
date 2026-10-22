@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -151,6 +152,7 @@ func main() {
 	// ── API endpoints ──
 	mux.HandleFunc("/api/v1/status", handleStatus(registry))
 	mux.HandleFunc("/api/v1/health", handleHealth())
+	mux.HandleFunc("/api/v1/tls/ask", relay.TLSAskHandler(cfg.Domain))
 	userAPI.RegisterRoutes(mux)
 
 	// ── Faz 0: capacity telemetry (/api/v1/density) ──
@@ -206,11 +208,21 @@ func main() {
 	// Subdomain bazlı routing buradan geçer
 	// Hosted Agent Bridge agents are not public: WrapProxy answers for them
 	// (signed webhooks only) and passes every other host through unchanged.
-	mux.Handle("/", bridgeSrv.WrapProxy(http.HandlerFunc(proxy.ServeHTTP)))
+	tunnelProxy := bridgeSrv.WrapProxy(http.HandlerFunc(proxy.ServeHTTP))
+	mux.Handle("/", tunnelProxy)
+
+	// Tunnel and app hosts (<name>.<domain>) see only the proxy, plus the
+	// browser TCP bridge that lives at wss://<name>.<domain>/tunnel/tcp. The
+	// relay's own routes answer on its own hosts (apex, relay., bridge., the
+	// internal relay:8080), so they never shadow a user's /api/v1/... paths.
+	tunnelMux := http.NewServeMux()
+	tunnelMux.HandleFunc("/tunnel/tcp", handler.ServeBrowserTCP)
+	tunnelMux.Handle("/", tunnelProxy)
+	routed := relay.SplitByHost(cfg.Domain, mux, tunnelMux, bridgePublicLabel(os.Getenv, cfg.Domain)...)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: withBaseMiddleware(mux),
+		Handler: withBaseMiddleware(routed),
 
 		// Timeout'lar — yavaş client'ları sonsonlandır
 		ReadHeaderTimeout: 10 * time.Second,
@@ -394,6 +406,20 @@ func handleHealth() http.HandlerFunc {
 			"timestamp": time.Now().Unix(),
 		})
 	}
+}
+
+// bridgePublicLabel returns the subdomain of TUNR_BRIDGE_PUBLIC_URL when it
+// sits under domain (e.g. "connect" for https://connect.example.com), so
+// connectors dialling it reach the relay's routes rather than the proxy.
+func bridgePublicLabel(getenv func(string) string, domain string) []string {
+	u, err := url.Parse(getenv("TUNR_BRIDGE_PUBLIC_URL"))
+	if err != nil || u.Hostname() == "" {
+		return nil
+	}
+	if label, ok := strings.CutSuffix(strings.ToLower(u.Hostname()), "."+strings.ToLower(domain)); ok && label != "" {
+		return []string{label}
+	}
+	return nil
 }
 
 // hostedAgentsEnabled reports TUNR_BRIDGE_HOSTED_AGENTS ("1" or "true").

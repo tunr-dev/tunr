@@ -36,8 +36,16 @@ tunnel.yourcompany.com    A  <your-server-ip>
 cp .env.example .env
 # Edit .env with your values:
 #   TUNR_DOMAIN=tunnel.yourcompany.com
-#   TUNR_JWT_SECRET=<random-64-char-string>
+#   TUNR_JWT_SECRET=$(openssl rand -hex 32)
+#   POSTGRES_PASSWORD=<random>
 ```
+
+Caddy (`caddy/Caddyfile`) gets a certificate per hostname on first use, and
+only for names the relay serves (`/api/v1/tls/ask`), so no DNS plugin is
+needed. The database schema is applied automatically on the first start; after
+an upgrade, re-run the migrations as shown under *Enabling the Agent Bridge*.
+The names `relay`, `bridge`, `app`, `www` and `api` are reserved and can't be
+used as tunnel subdomains or app names.
 
 ### 4. Start the stack
 

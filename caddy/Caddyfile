@@ -1,0 +1,24 @@
+# Self-host Caddyfile for docker-compose.yml (the tunr.sh production one is
+# relay/caddy/Caddyfile). Certificates are issued on demand, one per hostname,
+# and only for names the relay says it serves (TUNR_DOMAIN and its
+# single-label subdomains) — so no DNS-provider plugin is needed.
+
+{
+	on_demand_tls {
+		ask http://relay:8080/api/v1/tls/ask
+	}
+}
+
+{$TUNR_DOMAIN}, *.{$TUNR_DOMAIN} {
+	tls {
+		on_demand
+	}
+	reverse_proxy relay:8080 {
+		header_up X-Forwarded-For {remote_host}
+		header_up -X-Real-IP
+		header_up -Fly-Client-IP
+		header_up -CF-Connecting-IP
+		header_up -True-Client-IP
+	}
+	header -Server
+}

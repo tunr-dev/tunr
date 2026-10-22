@@ -318,7 +318,7 @@ func (c *ControlPlane) deleteApp(w http.ResponseWriter, r *http.Request, userID 
 // ---------- helpers ----------
 
 func validSubdomain(s string) bool {
-	if len(s) == 0 || len(s) > 63 {
+	if len(s) == 0 || len(s) > 63 || IsSystemLabel(s) {
 		return false
 	}
 	if s[0] == '-' || s[len(s)-1] == '-' {
