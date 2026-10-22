@@ -3,7 +3,7 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## v0.8.0 — unreleased
+## v0.8.0 — 2026-10-23
 
 tunr's headline is now **Agent Bridge**: AI vendors' agents get read-only,
 time-boxed, customer-approved and audited access to data inside a customer's

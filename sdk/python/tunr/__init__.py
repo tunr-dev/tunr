@@ -2,7 +2,7 @@
 
 from tunr.client import Tunnel, TunrClient, TunnelOptions
 
-__version__ = '0.7.0'
+__version__ = '0.8.0'
 
 __all__ = [
     'Tunnel',

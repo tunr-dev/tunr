@@ -122,17 +122,16 @@ The wire protocol between CLI and relay is the typed message stream in `internal
 - **Go 1.26+** (CI and releases build with 1.27.x), `CGO_ENABLED=0` everywhere — the CLI must stay a single static binary.
 - **Linter config** (`.golangci.yml`, golangci-lint v2 format, shared by both modules) disables `revive`'s `exported` rule, keeps staticcheck to v1's SA+S checks (no ST/QF), silences `gosec` G107/G110/G306/G404, and excludes `_test.go` from `errcheck`/`gosec`/`noctx`/`bodyclose`. Don't churn code to satisfy rules that are deliberately off.
 - **Auth tokens** must go through `internal/auth` (OS keychain). Never log `Manager.authToken` or write tokens to files — the codebase has `SECURITY:` comments marking these spots.
-- **Versioning** — `cmd/tunr/main.go` injects `Version` into `internal/tunnel` via its `init()`. The `-ldflags "-X main.Version=..."` in the Makefile is how releases get their version string; both CLI and SDK package versions (`sdk/python/pyproject.toml`, `sdk/node/package.json`) currently track `v0.4.0`.
+- **Versioning** — `cmd/tunr/main.go` injects `Version` into `internal/tunnel` via its `init()`. The `-ldflags "-X main.Version=..."` in the Makefile is how releases get their version string; both CLI and SDK package versions (`sdk/python/pyproject.toml`, `sdk/node/package.json`) currently track `v0.8.0`.
 - **Some doc comments are in Turkish** (notably `relay/cmd/server/main.go` and the JSON schema). This is intentional — preserve the language when editing those files unless the user asks for a translation.
 - **Tests near the CLI exercise CLI flag parsing**; tests under `internal/proxy/` use a real loopback HTTP server. There's a mock relay at `scripts/e2e/mock_relay.go` for end-to-end shell scripts (`scripts/full_*.sh`).
 - **`docs/` holds only public, user/contributor-facing docs.** Operational runbooks, launch/marketing copy, billing and compliance notes live in `docs/internal/` (gitignored, local only). `scripts/` and `relay/migrations/` are tracked. `landing/` (proprietary landing + dashboard) and the production deploy script are ignored. Secrets live only in server-side `.env` files.
 - **Licenses:** the CLI module (root `LICENSE`) is Apache-2.0; the relay (`relay/LICENSE`) is PolyForm Shield 1.0.0, which forbids building a competing service. Keep this in mind when proposing scope changes.
 
-## Agent Bridge (in progress, `bridge/main`)
+## Agent Bridge (preview, shipped in v0.8.0)
 
-The product is adding an agent-to-customer-data bridge. Work happens in the
-`../tunr-bridge` worktree on branch `bridge/main`; `main` stays the shipping
-v0.7.x line. Decision record: `docs/adr/0001-agent-bridge.md`. Wire contract:
+The headline product is the agent-to-customer-data bridge, merged into `main`
+for v0.8.0. Decision record: `docs/adr/0001-agent-bridge.md`. Wire contract:
 `docs/protocol/bridge.md`. Task plan (local, gitignored):
 `docs/internal/bridge/AGENT_BRIDGE.md`.
 
@@ -164,6 +163,10 @@ v0.7.x line. Decision record: `docs/adr/0001-agent-bridge.md`. Wire contract:
   guarantee. When in doubt, deny.
 - Bridge end-to-end test: `scripts/e2e/bridge/run.sh` (docker compose, separate
   customer/vendor networks). Run it before opening a bridge PR.
-- Live bridge environment is a separate `relay-bridge` container on `bridge.tunr.sh`
-  with its own `tunr_bridge` database; the production relay never runs bridge code.
+- Production runs the bridge in the main relay and `tunr` database;
+  `bridge.tunr.sh` is a Caddy alias for that relay (`relay/caddy/Caddyfile`).
+  Hosted agents stay off in production until egress/CPU quotas exist.
+- The relay's own routes answer only on its own hosts (`relay/internal/relay/hosts.go`);
+  tunnel and app hosts reach the proxy and `/tunnel/tcp` only. `relay`, `bridge`,
+  `app`, `www`, `api` are reserved names.
 - Task IDs (P0-T1 … P8-T5) map to branches `bridge/<task-id>-<slug>`.
