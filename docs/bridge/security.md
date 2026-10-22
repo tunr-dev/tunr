@@ -55,9 +55,10 @@ such grants always need **two different approvers**.
   limits what, how much (`max_rows`, `max_bytes`, `qps`) and for how long; it
   cannot control what the vendor does with the result. That is a contract
   matter — the audit log is your evidence.
-- **Query text in transit to the relay.** Per-query summaries — and, if you
-  enabled it, query text — are sent by your connector to the relay so they
-  appear in your audit log.
+- **Query text in transit to the relay.** Your connector sends a summary of
+  every query to the relay, including its (truncated) text, so they appear in
+  your audit log. The relay stores the text only if you enabled
+  `log_query_text`; otherwise it drops it and keeps the summary.
 
 ## Operational notes
 
