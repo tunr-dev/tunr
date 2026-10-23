@@ -3,7 +3,7 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v0.8.1 — 2026-10-23
 
 ### Security
 - **relay:** a deployed app always owns its hostname; a tunnel can no longer
