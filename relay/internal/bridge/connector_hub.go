@@ -140,6 +140,48 @@ func (h *ConnectorHub) Send(siteID string, m Message) error {
 	}
 }
 
+// dataHighWater: agent stream bytes may fill the send queue only this far, so
+// control messages (open, close, kill) always have room.
+const dataHighWater = sessionQueueLen * 3 / 4
+
+// SendData queues stream bytes for siteID's connector with backpressure: when
+// the queue is above dataHighWater it waits (slowing that agent's reads)
+// until there is room, the stream ends (cancel) or wait runs out. A busy
+// agent therefore slows down; it never disconnects the whole site.
+func (h *ConnectorHub) SendData(siteID string, m Message, cancel <-chan struct{}, wait time.Duration) error {
+	h.mu.Lock()
+	s, ok := h.sessions[siteID]
+	h.mu.Unlock()
+	if !ok {
+		return ErrSiteOffline
+	}
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+	for len(s.out) >= dataHighWater {
+		select {
+		case <-s.done:
+			return ErrSiteOffline
+		case <-cancel:
+			return errStreamBackpressure
+		case <-deadline.C:
+			return errStreamBackpressure
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	select {
+	case <-s.done:
+		return ErrSiteOffline
+	case s.out <- m:
+		return nil
+	case <-cancel:
+		return errStreamBackpressure
+	case <-deadline.C:
+		return errStreamBackpressure
+	}
+}
+
+var errStreamBackpressure = errors.New("connector is not keeping up with this stream")
+
 // Disconnect ends siteID's session (token rotated, site deleted or disabled).
 func (h *ConnectorHub) Disconnect(siteID, reason string) {
 	h.mu.Lock()

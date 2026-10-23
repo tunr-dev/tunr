@@ -83,7 +83,7 @@ func (c *ControlPlane) handleAppLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	// Ownership check doubles as existence check — never confirm to a stranger
 	// that a name is taken.
-	if !exists || app.UserID != userID {
+	if !exists || !c.canManage(r.Context(), app, userID) {
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("no app named %q", name))
 		return
 	}
@@ -302,7 +302,7 @@ func (c *ControlPlane) deleteApp(w http.ResponseWriter, r *http.Request, userID 
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("no app named %q", name))
 		return
 	}
-	if app.UserID != userID {
+	if !c.canManage(r.Context(), app, userID) {
 		// Don't leak existence to other users.
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("no app named %q", name))
 		return
@@ -432,6 +432,20 @@ func (c *ControlPlane) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// canManage: a web app is managed by the user who owns it. A hosted agent's
+// app belongs to its org: only a current owner/admin of that org may manage
+// it, so whoever deployed it loses control when they lose the role.
+func (c *ControlPlane) canManage(ctx context.Context, app *db.App, userID string) bool {
+	isAgent, admin, err := c.db.AgentAppAdmin(ctx, app.ID, userID)
+	if err != nil {
+		return false
+	}
+	if isAgent {
+		return admin
+	}
+	return app.UserID == userID
+}
+
 // deployRequest is one deploy, from the CLI (/v1/deploy) or the Agent Bridge.
 type deployRequest struct {
 	Name         string
@@ -446,6 +460,16 @@ func (c *ControlPlane) deploy(ctx context.Context, userID, plan string, meta dep
 	quota := quotaFor(plan)
 	// Plan quotas. Redeploying an app you already own never counts as a new app.
 	existing, found, err := c.db.GetAppByName(ctx, meta.Name)
+	// A hosted agent's app follows its org: a current org admin redeploying
+	// it takes it over from whoever deployed it before.
+	if err == nil && found && meta.Kind == "agent" && existing.UserID != userID {
+		if isAgent, admin, aerr := c.db.AgentAppAdmin(ctx, existing.ID, userID); aerr == nil && isAgent && admin {
+			if serr := c.db.SetAppOwner(ctx, existing.ID, userID); serr != nil {
+				return nil, 0, serr
+			}
+			existing.UserID = userID
+		}
+	}
 	if err == nil && (!found || existing.UserID != userID) {
 		if msg, over := c.appQuotaExceeded(ctx, userID, plan); over {
 			return nil, 0, errors.New(msg)

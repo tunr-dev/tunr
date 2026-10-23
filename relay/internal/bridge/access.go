@@ -333,9 +333,14 @@ func (a *Access) agentReader(conn *websocket.Conn, st *agentStream) {
 		case websocket.BinaryMessage:
 			for len(data) > 0 {
 				n := min(len(data), agentChunk)
-				if err := a.hub.Send(st.siteID, msg(MsgData, DataPayload{
+				err := a.hub.SendData(st.siteID, msg(MsgData, DataPayload{
 					StreamID: st.id, PayloadB64: base64.StdEncoding.EncodeToString(data[:n]),
-				})); err != nil {
+				}), st.done, dataSendWait)
+				if errors.Is(err, errStreamBackpressure) {
+					st.close("backpressure", false)
+					return
+				}
+				if err != nil {
 					st.close("site_offline", false)
 					return
 				}
@@ -482,6 +487,10 @@ func (a *Access) KillSite(siteID, reason string) int {
 	}
 	return len(hit)
 }
+
+// dataSendWait bounds how long one agent write may wait for room in the
+// site's queue before only that stream is closed.
+const dataSendWait = 30 * time.Second
 
 // KillToken closes every live stream opened with an agent token.
 func (a *Access) KillToken(tokenID, reason string) int {

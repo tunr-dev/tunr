@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -269,3 +270,35 @@ type sinkFunc func(string, Message)
 
 func (f sinkFunc) FromConnector(siteID string, m Message) { f(siteID, m) }
 func (f sinkFunc) SiteGone(string)                        {}
+
+// One busy stream fills only its share of the site's queue and is slowed or
+// closed itself; the site stays connected and control messages still fit.
+func TestSendDataBackpressureKeepsSite(t *testing.T) {
+	h := NewConnectorHub(nil, "k")
+	s := &connSession{siteID: "site_1", out: make(chan Message, sessionQueueLen), done: make(chan struct{})}
+	h.sessions["site_1"] = s
+	data := msg(MsgData, DataPayload{StreamID: "st"})
+	for i := 0; i < dataHighWater; i++ {
+		if err := h.SendData("site_1", data, nil, time.Second); err != nil {
+			t.Fatalf("send %d: %v", i, err)
+		}
+	}
+	if err := h.SendData("site_1", data, nil, 50*time.Millisecond); !errors.Is(err, errStreamBackpressure) {
+		t.Fatalf("above high water: %v, want backpressure", err)
+	}
+	select {
+	case <-s.done:
+		t.Fatal("a busy stream disconnected the site")
+	default:
+	}
+	if err := h.Send("site_1", msg(MsgKill, KillData{GrantID: "*"})); err != nil {
+		t.Fatalf("control message after data backpressure: %v", err)
+	}
+	<-s.out // the connector drains one message → room again
+	for len(s.out) >= dataHighWater {
+		<-s.out
+	}
+	if err := h.SendData("site_1", data, nil, time.Second); err != nil {
+		t.Fatalf("after drain: %v", err)
+	}
+}
