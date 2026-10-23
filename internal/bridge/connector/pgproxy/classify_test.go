@@ -23,8 +23,8 @@ func TestClassify(t *testing.T) {
 		"EXPLAIN (FORMAT JSON) SELECT 1",
 		"BEGIN", "BEGIN READ ONLY", "START TRANSACTION ISOLATION LEVEL REPEATABLE READ", "COMMIT", "END", "ROLLBACK", "ABORT",
 		"SAVEPOINT a", "RELEASE SAVEPOINT a", "ROLLBACK TO SAVEPOINT a",
-		"SET search_path TO public", "SET SESSION statement_timeout = '5s'", "SET LOCAL lock_timeout = 1000",
-		"SET TIME ZONE 'UTC'", "SET application_name = 'agent'", "RESET statement_timeout",
+		"SET search_path TO public", "SET LOCAL lock_timeout = 1000",
+		"SET TIME ZONE 'UTC'", "SET application_name = 'agent'", "RESET application_name",
 		"SELECT 'DELETE FROM fatura'",                         // keyword inside a string
 		"SELECT 1 -- ; DROP TABLE fatura",                     // inside a comment
 		`SELECT "update", "delete" FROM t`,                    // quoted identifiers
@@ -69,6 +69,11 @@ func TestClassify(t *testing.T) {
 		"SELECT lo_import('/etc/passwd')",
 		"SELECT nextval('seq')",
 		"SELECT pg_sleep(100)",
+		`SELECT "pg_sleep"(100)`,
+		`SELECT pg_catalog."set_config"('a', 'b', false)`,
+		"SET statement_timeout = 0", "SET SESSION statement_timeout = '5s'", "RESET statement_timeout",
+		"SET client_encoding = 'SJIS'", "SET standard_conforming_strings = off",
+		"SELECT 1 \xff",
 		"SELECT query_to_xml('delete from fatura', true, true, '')",
 		"SELECT dblink_exec('host=x', 'drop table y')",
 		"SELECT * FROM fatura FOR UPDATE",
