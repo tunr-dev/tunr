@@ -78,11 +78,15 @@ func SignWebhook(secret string, t time.Time, body []byte) string {
 	return "t=" + ts + ",v1=" + hex.EncodeToString(mac.Sum(nil))
 }
 
+// webhookClient dials public addresses only and doesn't follow redirects:
+// webhook URLs are tenant input.
+var webhookClient = newPublicClient(10 * time.Second)
+
 func (n *Notifier) client() *http.Client {
 	if n.HTTP != nil {
 		return n.HTTP
 	}
-	return &http.Client{Timeout: 10 * time.Second}
+	return webhookClient
 }
 
 func (n *Notifier) post(ctx context.Context, h db.Webhook, body []byte) {
