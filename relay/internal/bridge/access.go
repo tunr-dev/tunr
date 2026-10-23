@@ -483,6 +483,22 @@ func (a *Access) KillSite(siteID, reason string) int {
 	return len(hit)
 }
 
+// KillToken closes every live stream opened with an agent token.
+func (a *Access) KillToken(tokenID, reason string) int {
+	a.mu.Lock()
+	var hit []*agentStream
+	for _, st := range a.streams {
+		if st.tokenID == tokenID {
+			hit = append(hit, st)
+		}
+	}
+	a.mu.Unlock()
+	for _, st := range hit {
+		st.close(reason, false)
+	}
+	return len(hit)
+}
+
 // KillGrant closes every live stream of a grant (P4 revocation uses it).
 func (a *Access) KillGrant(grantID, reason string) int {
 	a.mu.Lock()
