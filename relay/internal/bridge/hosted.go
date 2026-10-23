@@ -444,6 +444,10 @@ func (s *Server) WrapProxy(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if !app.Active {
+			http.Error(w, "this hosted agent is disabled", http.StatusServiceUnavailable)
+			return
+		}
 		name, isHook := strings.CutPrefix(r.URL.Path, hookPrefix)
 		if !isHook || r.Method != http.MethodPost {
 			http.Error(w, "this is a hosted agent; it only accepts signed triggers", http.StatusNotFound)
@@ -572,7 +576,7 @@ func (s *Server) cronTick(ctx context.Context, now time.Time) {
 func (s *Server) appByID(ctx context.Context, appID string) (db.HostedApp, bool) {
 	s.refreshHosted(ctx)
 	for _, a := range s.hostedSnapshot() {
-		if a.AppID == appID {
+		if a.AppID == appID && a.Active {
 			return a, true
 		}
 	}

@@ -215,9 +215,14 @@ func (db *DB) GetOrgBySlug(ctx context.Context, slug string) (*Org, error) {
 	return scanOrg(db.pool.QueryRow(ctx, `SELECT `+orgCols+` FROM orgs o WHERE o.slug = $1`, slug))
 }
 
+// ErrOwnerChange: an existing owner's role can only be changed by an owner,
+// and never so that the org is left without one.
+var ErrOwnerChange = errors.New("only an owner can change an owner's role, and an org keeps at least one owner")
+
 // AddOrgMember adds (or re-roles) a user by email, creating the user row if the
 // person has never signed in — the same row magic-link login would create.
-func (db *DB) AddOrgMember(ctx context.Context, orgID, email, role string) (*OrgMember, error) {
+// byOwner says whether the caller is an owner of the org.
+func (db *DB) AddOrgMember(ctx context.Context, orgID, email, role string, byOwner bool) (*OrgMember, error) {
 	u, _, err := db.GetOrCreateUser(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if err != nil {
 		return nil, err
@@ -226,8 +231,13 @@ func (db *DB) AddOrgMember(ctx context.Context, orgID, email, role string) (*Org
 	err = db.pool.QueryRow(ctx, `
 		INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2::uuid, $3)
 		ON CONFLICT (org_id, user_id) DO UPDATE SET role = EXCLUDED.role
-		RETURNING user_id::text, role, created_at`, orgID, u.ID, role).
+		WHERE org_members.role <> 'owner' OR EXCLUDED.role = 'owner'
+		   OR ($4 AND (SELECT count(*) FROM org_members o WHERE o.org_id = $1 AND o.role = 'owner') > 1)
+		RETURNING user_id::text, role, created_at`, orgID, u.ID, role, byOwner).
 		Scan(&m.UserID, &m.Role, &m.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrOwnerChange
+	}
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -375,11 +385,13 @@ func (db *DB) QueryRowForTest(ctx context.Context, sql string, args ...any) pgx.
 
 // ─── Portal login (shares magic_tokens with the dashboard) ──────────────────
 
-// SavePortalMagicToken stores sha256(token) for email, replacing any older
-// link for that address — the same scheme as the dashboard
-// (landing/app/api/auth/send-magic-link), so the two never disagree.
+// SavePortalMagicToken stores sha256(token) for email — the same scheme as
+// the dashboard (landing/app/api/auth/send-magic-link). Older unexpired links
+// stay valid: anyone can request a link for any address, so a new request
+// must not cancel the one the owner is about to click. Links are single use
+// and the request rate per address is limited.
 func (db *DB) SavePortalMagicToken(ctx context.Context, email, tokenHash string, expiresAt time.Time) error {
-	_, err := db.pool.Exec(ctx, `DELETE FROM magic_tokens WHERE email = $1 OR expires_at < now()`, email)
+	_, err := db.pool.Exec(ctx, `DELETE FROM magic_tokens WHERE expires_at < now()`)
 	if err != nil {
 		return err
 	}

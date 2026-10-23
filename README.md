@@ -26,7 +26,7 @@ Read-only, time-boxed, approved by the customer, and on the record — through o
 
 ```bash
 # Customer IT, once — inside their network, outbound HTTPS only:
-$ tunr connect --relay https://bridge.tunr.sh --site istanbul-office --token tunr_site_… --relay-key ed25519:…
+$ tunr connect --relay https://bridge.tunr.sh --site istanbul-office --relay-key ed25519:… --token-stdin --setup-only   # paste the site token
 $ tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo
 $ tunr connect pg-role --database logo --tables invoices,stock --resource erp-db > pg-role.sql   # for the DBA
 

@@ -63,6 +63,9 @@ type Config struct {
 
 const maxAuditText = 4096
 
+// maxNamedObjects bounds prepared statements and portals tracked per session.
+const maxNamedObjects = 1000
+
 // Serve runs one session on client until either side ends.
 func Serve(ctx context.Context, client net.Conn, cfg Config) error {
 	defer client.Close()
@@ -208,6 +211,10 @@ func connectUpstream(ctx context.Context, cfg Config) (*pgconn.HijackedConn, err
 		"statement_timeout":                   "30s",
 		"idle_in_transaction_session_timeout": "60s",
 		"application_name":                    app,
+		// The classifier reads statements as UTF-8 with standard strings;
+		// pin both so the server parses them the same way.
+		"client_encoding":             "UTF8",
+		"standard_conforming_strings": "on",
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -248,7 +255,7 @@ type session struct {
 
 	// client goroutine only
 	skipUntilSync bool
-	stmts         map[string]Verdict // prepared statement name → verdict
+	stmts         map[string]Verdict // prepared statement name → verdict (≤ maxNamedObjects)
 	portals       map[string]string  // portal → statement
 	bucket        float64
 	bucketAt      time.Time
@@ -353,11 +360,25 @@ func (s *session) fromClient() error {
 				}
 				continue
 			}
+			if _, known := s.stmts[m.Name]; !known && len(s.stmts) >= maxNamedObjects {
+				s.skipUntilSync = true
+				if err := s.toClient(true, s.blockErr("too many prepared statements on this session")); err != nil {
+					return err
+				}
+				continue
+			}
 			s.stmts[m.Name] = v
 			s.fe.Send(m)
 
 		case *pgproto3.Bind:
 			if s.skipUntilSync {
+				continue
+			}
+			if _, known := s.portals[m.DestinationPortal]; !known && len(s.portals) >= maxNamedObjects {
+				s.skipUntilSync = true
+				if err := s.toClient(true, s.blockErr("too many open portals on this session")); err != nil {
+					return err
+				}
 				continue
 			}
 			s.portals[m.DestinationPortal] = m.PreparedStatement
@@ -382,7 +403,18 @@ func (s *session) fromClient() error {
 			s.beginOrJoin(v, "")
 			s.fe.Send(m)
 
-		case *pgproto3.Describe, *pgproto3.Close:
+		case *pgproto3.Close:
+			if s.skipUntilSync {
+				continue
+			}
+			if m.ObjectType == 'S' {
+				delete(s.stmts, m.Name)
+			} else {
+				delete(s.portals, m.Name)
+			}
+			s.fe.Send(m)
+
+		case *pgproto3.Describe:
 			if s.skipUntilSync {
 				continue
 			}

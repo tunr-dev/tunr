@@ -43,17 +43,21 @@ func (db *DB) AgentByBootstrap(ctx context.Context, bootstrapHash string) (*Agen
 // HostedApp is an agent app as the trigger layer needs it.
 type HostedApp struct {
 	AppID, Name, OrgID, AgentID, AgentName, TriggerSecret string
+	Active                                                bool // agent exists and is active
 }
 
-// ListHostedApps returns every live agent app with its agent.
+// ListHostedApps returns every agent app that isn't deleted, including those
+// whose agent is disabled or gone (Active=false): the relay must keep
+// guarding their hostnames rather than let traffic through to the container.
 func (db *DB) ListHostedApps(ctx context.Context) ([]HostedApp, error) {
 	rows, err := db.pool.Query(ctx, `
-		SELECT a.id, a.name, g.org_id, g.id, g.name, COALESCE(g.trigger_secret, '')
-		FROM apps a JOIN agents g ON g.app_id = a.id
-		WHERE a.kind = 'agent' AND a.status <> 'deleted' AND g.status = 'active'`)
+		SELECT a.id, a.name, COALESCE(g.org_id, ''), COALESCE(g.id, ''), COALESCE(g.name, ''),
+		       COALESCE(g.trigger_secret, ''), COALESCE(g.status = 'active', false)
+		FROM apps a LEFT JOIN agents g ON g.app_id = a.id
+		WHERE a.kind = 'agent' AND a.status <> 'deleted'`)
 	return collect(rows, err, func(r pgx.Row) (*HostedApp, error) {
 		var h HostedApp
-		err := r.Scan(&h.AppID, &h.Name, &h.OrgID, &h.AgentID, &h.AgentName, &h.TriggerSecret)
+		err := r.Scan(&h.AppID, &h.Name, &h.OrgID, &h.AgentID, &h.AgentName, &h.TriggerSecret, &h.Active)
 		return &h, err
 	})
 }

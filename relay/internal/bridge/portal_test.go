@@ -1,7 +1,9 @@
 package bridge
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -140,5 +142,31 @@ func TestOrgSettings(t *testing.T) {
 	e.call(e.agentTok, "POST", "/agent/grants", map[string]any{"resource": "acme/erp-db", "ttl": "3h", "reason": "x"}, 400, &errBody)
 	if errBody.Error != "invalid_ttl" {
 		t.Errorf("ttl beyond org cap: %s", errBody.Error)
+	}
+}
+
+func TestLoginLimiterIsPerIP(t *testing.T) {
+	l := &loginLimiter{byMail: map[string][]time.Time{}, byIP: map[string][]time.Time{}}
+	now := time.Now()
+	for i := 0; i < 200; i++ {
+		l.allow("203.0.113.9", fmt.Sprintf("u%d@example.test", i), now)
+	}
+	if !l.allow("198.51.100.7", "owner@example.test", now) {
+		t.Fatal("one address's requests blocked another caller's sign-in")
+	}
+}
+
+func TestPortalMagicLinkSurvivesNewRequest(t *testing.T) {
+	d := dbtest.New(t)
+	ctx := context.Background()
+	exp := time.Now().Add(15 * time.Minute)
+	if err := d.SavePortalMagicToken(ctx, "a@example.test", "h1", exp); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SavePortalMagicToken(ctx, "a@example.test", "h2", exp); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := d.ConsumePortalMagicToken(ctx, "a@example.test", "h1"); !ok || err != nil {
+		t.Fatalf("first link cancelled by a second request: %v %v", ok, err)
 	}
 }

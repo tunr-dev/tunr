@@ -175,7 +175,7 @@ func main() {
 		agentApps = agentDeployer{controlPlane}
 	}
 	bridgeSrv, err := bridge.New(bridge.ConfigFromEnv(os.Getenv), bridge.Deps{
-		DB: database, JWT: jwtAuth, Deployer: agentApps,
+		DB: database, JWT: jwtAuth, Deployer: agentApps, ClientIP: relay.ClientIP,
 	})
 	if err != nil {
 		logger.Fatal("agent bridge: %v", err)

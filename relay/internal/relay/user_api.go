@@ -32,7 +32,6 @@ const (
 //	GET  /api/user/profile       → plan, kullanım, hesap bilgisi
 //	GET  /api/user/tunnels       → aktif tünel listesi
 //	GET  /api/user/token         → API token (masked)
-//	POST /api/user/token/rotate  → yeni token üret
 //	GET  /api/user/usage         → bu ay kullanım detayı
 
 type UserAPI struct {
@@ -60,7 +59,6 @@ func (a *UserAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/user/tunnels", a.authMiddleware(http.HandlerFunc(a.handleTunnels)))
 	mux.Handle("/api/user/usage", a.authMiddleware(http.HandlerFunc(a.handleUsage)))
 	mux.Handle("/api/user/token", a.authMiddleware(http.HandlerFunc(a.handleToken)))
-	mux.Handle("/api/user/token/rotate", a.authMiddleware(http.HandlerFunc(a.handleTokenRotate)))
 }
 
 // ── Auth Middleware ────────────────────────────────────────────────
@@ -287,35 +285,6 @@ func (a *UserAPI) handleToken(w http.ResponseWriter, r *http.Request) {
 		"token_masked": "prv_••••••••••••••••",
 		"created_at":   time.Now().UTC().Format(time.RFC3339),
 		"last_used":    nil,
-	})
-}
-
-// POST /api/user/token/rotate
-func (a *UserAPI) handleTokenRotate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "")
-		return
-	}
-
-	userID := r.Context().Value(ctxKeyUserID).(string)
-	email := r.Context().Value(ctxKeyUserEmail).(string)
-	plan := r.Context().Value(ctxKeyUserPlan).(string)
-
-	// Yeni token üret
-	newToken, err := a.jwtAuth.Issue(userID, email, plan)
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "token_error", "Token oluşturulamadı.")
-		return
-	}
-
-	// Note: persistent token revocation/storage not yet implemented;
-	// rotation returns a freshly signed JWT and the previous one expires naturally on TTL.
-
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"token":      newToken, // Tek seferlik gösterim, sonra masked
-		"created_at": time.Now().UTC().Format(time.RFC3339),
-		"message":    "Eski token artık geçersizdir. Bu tokeni güvenli saklayın.",
 	})
 }
 

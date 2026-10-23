@@ -412,9 +412,27 @@ func (s *Server) sessionQueries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"queries": qs})
 }
 
+// endGrants revokes the grants in scope (pending ones are denied) and cuts
+// their live streams. A lookup failure is logged, not returned: the change
+// that triggered it has already been made.
+func (s *Server) endGrants(r *http.Request, orgID string, scope db.GrantScope, id, reason string) {
+	ended, err := s.db.EndGrants(r.Context(), orgID, scope, id)
+	if err != nil {
+		logger.Warn("bridge: end grants (%s): %v", reason, err)
+		return
+	}
+	for i := range ended {
+		g := &ended[i]
+		s.cutGrant(g.ID, g.SiteID, reason)
+		s.grantAudit(r.Context(), g, userFrom(r).ID, audit.ActionBridgeGrantRevoked, map[string]any{"by_org": orgID, "cause": reason})
+		s.notify.Grant("grant.revoked", g)
+	}
+}
+
 // killSite is the customer's "cut access" button: every approved grant on
-// the site is revoked (so agents can't simply reconnect) and every open
-// stream is closed on both legs.
+// the site is revoked, pending ones are denied and auto-approve is turned
+// off (so agents can't simply reconnect), and every open stream is closed on
+// both legs.
 func (s *Server) killSite(w http.ResponseWriter, r *http.Request) {
 	m := s.admin(w, r)
 	if m == nil {
@@ -501,7 +519,7 @@ func (s *Server) orgAuditExport(w http.ResponseWriter, r *http.Request) {
 		for _, e := range ev {
 			d, _ := json.Marshal(e.Detail)
 			_ = cw.Write([]string{strconv.FormatInt(e.ID, 10), e.CreatedAt.UTC().Format(time.RFC3339),
-				e.Action, e.UserEmail, csvSafe(string(d))})
+				csvSafe(e.Action), csvSafe(e.UserEmail), csvSafe(string(d))})
 		}
 		cw.Flush()
 		return

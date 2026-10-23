@@ -210,8 +210,14 @@ func (h *Handler) ServeTunnel(w http.ResponseWriter, r *http.Request) {
 		userID = "anon:" + r.RemoteAddr
 	}
 
-	// Reserved subdomain ownership check.
+	// Reserved subdomain ownership check. Hostnames are case-insensitive, so
+	// every check and the registry use the canonical lowercase label.
 	if hello.Subdomain != "" {
+		hello.Subdomain = strings.ToLower(strings.TrimSpace(hello.Subdomain))
+		if !validSubdomain(hello.Subdomain) {
+			writeErr(conn, "invalid subdomain")
+			return
+		}
 		if IsSystemLabel(hello.Subdomain) {
 			writeErr(conn, "subdomain is reserved")
 			return
@@ -233,6 +239,18 @@ func (h *Handler) ServeTunnel(w http.ResponseWriter, r *http.Request) {
 			}
 			if found && ownerUserID != userID {
 				writeErr(conn, "subdomain is reserved by another user")
+				return
+			}
+			// Apps and tunnels share one hostname namespace: a tunnel must
+			// never take over another user's deployed app.
+			app, exists, err := h.db.GetAppByName(r.Context(), hello.Subdomain)
+			if err != nil {
+				logger.Warn("app name check failed (%s): %v", hello.Subdomain, err)
+				writeErr(conn, "subdomain ownership check failed")
+				return
+			}
+			if exists && app.UserID != userID {
+				writeErr(conn, "subdomain is used by another user's app")
 				return
 			}
 		}

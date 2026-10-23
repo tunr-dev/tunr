@@ -15,6 +15,7 @@ package pgproxy
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Verdict is the classifier's answer for one SQL string.
@@ -236,15 +237,21 @@ var deniedFuncs = map[string]bool{
 	"PG_CURRENT_XACT_ID": true, "PG_IMPORT_SYSTEM_COLLATIONS": true,
 }
 
-// Session parameters an agent may SET or RESET.
+// Session parameters an agent may SET or RESET. statement_timeout is pinned
+// by the connector, and client_encoding / standard_conforming_strings change
+// how the server reads the statement text, so the classifier and the server
+// must agree on them: none of the three is settable.
 var safeSettings = map[string]bool{
-	"SEARCH_PATH": true, "STATEMENT_TIMEOUT": true, "APPLICATION_NAME": true, "CLIENT_ENCODING": true,
+	"SEARCH_PATH": true, "APPLICATION_NAME": true,
 	"DATESTYLE": true, "TIMEZONE": true, "EXTRA_FLOAT_DIGITS": true, "INTERVALSTYLE": true,
-	"LOCK_TIMEOUT": true, "CLIENT_MIN_MESSAGES": true, "BYTEA_OUTPUT": true, "STANDARD_CONFORMING_STRINGS": true,
+	"LOCK_TIMEOUT": true, "CLIENT_MIN_MESSAGES": true, "BYTEA_OUTPUT": true,
 }
 
 // Classify decides whether sql may run on a read-only bridge session.
 func Classify(sql string) Verdict {
+	if !utf8.ValidString(sql) || strings.ContainsRune(sql, 0) {
+		return Verdict{Command: "UNKNOWN", Reason: "statement is not valid UTF-8"}
+	}
 	toks, ok := tokenize(sql)
 	if !ok {
 		return Verdict{Command: "UNKNOWN", Reason: "could not parse the statement safely"}
@@ -296,6 +303,11 @@ func denyReason(st []token) string {
 		return first + " is not allowed on a read-only bridge"
 	}
 	for i, t := range st {
+		// A quoted name still calls the function it names ("pg_sleep"(1)).
+		if t.kind == tokQuotedIdent && i+1 < len(st) && st[i+1].kind == tokPunct && st[i+1].text == "(" &&
+			deniedFuncs[strings.ToUpper(t.text)] {
+			return strings.ToLower(t.text) + "() is not allowed on a read-only bridge"
+		}
 		if t.kind != tokWord {
 			continue
 		}

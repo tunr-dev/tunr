@@ -63,10 +63,7 @@ func (KeychainStore) Set(name, value string) error {
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		// -U updates in place. The value is briefly visible in this process's
-		// argv (same as StoreToken); `security` offers no stdin form.
-		out, err := exec.Command("security", "add-generic-password",
-			"-s", connectorKeychainService, "-a", name, "-w", value, "-U").CombinedOutput()
+		out, err := macKeychainAdd(connectorKeychainService, name, value)
 		if err != nil {
 			return fmt.Errorf("keychain write failed: %s", sanitizeOutput(string(out)))
 		}

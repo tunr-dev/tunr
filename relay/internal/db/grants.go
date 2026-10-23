@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -211,24 +212,79 @@ func (db *DB) RevokeGrant(ctx context.Context, orgID, grantID string) (*GrantVie
 	return db.transition(ctx, grantID, "(g.vendor_org_id = $2 OR g.customer_org_id = $2)", orgID, "revoked", "approved")
 }
 
-// RevokeSiteGrants revokes every approved grant on a site's resources (the
-// customer's "cut access" button) and returns them.
+// RevokeSiteGrants is the customer's "cut access" button: approved grants on
+// the site's resources are revoked, pending ones denied (so a half-approved
+// rw request can't open later), and auto-approve is switched off so agents
+// can't get a fresh grant without a person. Returns the revoked grants.
 func (db *DB) RevokeSiteGrants(ctx context.Context, customerOrgID, siteID string) ([]GrantView, error) {
+	if _, err := db.pool.Exec(ctx, `
+		UPDATE resources SET auto_approve = NULL
+		WHERE site_id = $2 AND org_id = $1 AND auto_approve IS NOT NULL`, customerOrgID, siteID); err != nil {
+		return nil, err
+	}
+	return db.endGrants(ctx, customerOrgID, `
+		g.customer_org_id = $1 AND g.resource_id IN (SELECT id FROM resources WHERE site_id = $2)`, siteID)
+}
+
+// GrantScope picks the grants a revocation applies to.
+type GrantScope int
+
+const (
+	ScopeResource GrantScope = iota // grants on one resource
+	ScopeAgent                      // grants held by one agent
+	ScopeLink                       // grants between the two orgs of a link
+)
+
+// EndGrants revokes approved and denies pending grants in scope, as seen by
+// orgID (which must be a party to them). Returns the grants that were
+// approved, whose live streams the caller must cut.
+func (db *DB) EndGrants(ctx context.Context, orgID string, scope GrantScope, id string) ([]GrantView, error) {
+	switch scope {
+	case ScopeResource:
+		return db.endGrants(ctx, orgID, `g.customer_org_id = $1 AND g.resource_id = $2`, id)
+	case ScopeAgent:
+		return db.endGrants(ctx, orgID, `g.vendor_org_id = $1 AND g.agent_id = $2`, id)
+	case ScopeLink:
+		return db.endGrants(ctx, orgID, `(g.vendor_org_id = $1 OR g.customer_org_id = $1)
+			AND EXISTS (SELECT 1 FROM links l WHERE l.id = $2
+			  AND l.vendor_org_id = g.vendor_org_id AND l.customer_org_id = g.customer_org_id)`, id)
+	}
+	return nil, fmt.Errorf("unknown grant scope %d", scope)
+}
+
+// endGrants: where is a fixed clause over alias g with $1 = orgID, $2 = arg.
+func (db *DB) endGrants(ctx context.Context, orgID, where, arg string) ([]GrantView, error) {
 	rows, err := db.pool.Query(ctx, `
-		UPDATE grants g SET status = 'revoked', updated_at = now()
-		FROM resources r
-		WHERE r.id = g.resource_id AND r.site_id = $2 AND g.customer_org_id = $1 AND g.status = 'approved'
-		RETURNING g.id`, customerOrgID, siteID)
+		WITH old AS (
+		  SELECT g.id, g.status FROM grants g
+		  WHERE g.status IN ('approved', 'pending') AND `+where+`
+		  FOR UPDATE
+		)
+		UPDATE grants SET status = CASE WHEN old.status = 'approved' THEN 'revoked' ELSE 'denied' END,
+		                  updated_at = now()
+		FROM old WHERE grants.id = old.id
+		RETURNING grants.id, old.status`, orgID, arg)
 	if err != nil {
 		return nil, err
 	}
-	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
+	var ids []string
+	for rows.Next() {
+		var id, was string
+		if err := rows.Scan(&id, &was); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if was == "approved" {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	out := make([]GrantView, 0, len(ids))
 	for _, id := range ids {
-		if v, err := db.GetGrantView(ctx, customerOrgID, id); err == nil {
+		if v, err := db.GetGrantView(ctx, orgID, id); err == nil {
 			out = append(out, *v)
 		}
 	}

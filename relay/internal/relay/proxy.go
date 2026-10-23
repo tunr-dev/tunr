@@ -54,17 +54,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A persistent app route wins over a live tunnel with the same label:
+	// tunnels are ephemeral and must never shadow a deployed app, even if the
+	// tunnel was registered before the app existed.
+	if p.routes != nil {
+		if up, found := p.routes.LookupCloud(subdomain); found {
+			up.ServeHTTP(w, r)
+			return
+		}
+	}
+
 	// Tunnel'ı bul
 	entry, ok := p.registry.Lookup(subdomain)
 	if !ok {
-		// Canlı tünel yok — kalıcı bir cloud app'e (wake-on-request) düş.
-		// Pivot Faz 0: subdomain 'routes' tablosunda kind='cloud' ise buradan servis edilir.
-		if p.routes != nil {
-			if up, found := p.routes.LookupCloud(subdomain); found {
-				up.ServeHTTP(w, r)
-				return
-			}
-		}
 		writeTunnelNotFound(w, subdomain)
 		return
 	}
@@ -159,7 +161,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // extractSubdomain — "abc1x2y3.tunr.sh" → "abc1x2y3"
 func extractSubdomain(host, domain string) string {
-	host = strings.Split(host, ":")[0] // port'u sil
+	host = strings.ToLower(strings.TrimSuffix(strings.Split(host, ":")[0], ".")) // port'u sil
+	domain = strings.ToLower(domain)
 	if !strings.HasSuffix(host, "."+domain) {
 		return ""
 	}

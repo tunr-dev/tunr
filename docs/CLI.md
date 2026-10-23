@@ -42,8 +42,8 @@ connector in the foreground.
 
 **Flags:**
 * `--site <string>`: Site name (first-time setup).
-* `--token <string>`: Site token from the portal (first-time setup). Stored in the secret store, not the config file.
-* `--token-stdin`: Read the site token from stdin instead of `--token`.
+* `--token-stdin`: Read the site token from a hidden prompt, or from stdin when piped (first-time setup). Stored in the secret store, not the config file.
+* `--token <string>`: Site token on the command line. Prefer `--token-stdin`: a token in argv ends up in shell history. With `--token` the command only does setup and exits.
 * `--relay-key <string>`: Relay public key to pin (`ed25519:…`, from the portal; first-time setup). The connector refuses a relay that presents a different key.
 * `--secret-store <string>`: Where secrets live: `keychain` (default) or `file` (headless servers; `0600` files in a `0700` directory, not encrypted). `tunr connect install` on Linux requires `file`.
 * `--setup-only`: Write the config and store the token, then exit.
@@ -53,7 +53,8 @@ connector in the foreground.
 ```bash
 # First-time setup (values come from the portal)
 sudo tunr connect --relay https://bridge.tunr.sh --site istanbul-office \
-  --token tunr_site_… --relay-key ed25519:… --secret-store file --setup-only
+  --relay-key ed25519:… --token-stdin --secret-store file --setup-only
+# paste the site token (tunr_site_…) at the prompt
 
 # Run in the foreground with the saved config
 tunr connect

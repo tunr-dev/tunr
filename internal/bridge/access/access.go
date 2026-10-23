@@ -72,6 +72,10 @@ type Client struct {
 	// DSN's password). Only its SHA-256 is sent; the connector's pgproxy
 	// checks it, so other local users can't use this port.
 	ClientSecret string
+	// SameUserOnly refuses local connections from processes of other users
+	// (Linux; see PeerCheckSupported). Raw TCP has no password of its own,
+	// so this is what keeps the port to the agent's user.
+	SameUserOnly bool
 	// RequireE2E refuses streams the connector can't end-to-end encrypt;
 	// DisableE2E never asks for it (tests, debugging).
 	RequireE2E bool
@@ -159,6 +163,13 @@ func (c *Client) Serve(ctx context.Context, l net.Listener) error {
 				return nil
 			}
 			return err
+		}
+		if c.SameUserOnly {
+			if ok, err := peerAllowed(local); !ok {
+				c.logf("local connection from %s refused: not this user's process (%v)", local.RemoteAddr(), err)
+				_ = local.Close()
+				continue
+			}
 		}
 		wg.Add(1)
 		go func() {

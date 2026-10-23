@@ -77,7 +77,7 @@ Required for Pro features (custom subdomains, custom domains, etc.)`,
 			srv := &http.Server{Handler: mux}
 			go func() { _ = srv.Serve(listener) }()
 
-			loginURL := fmt.Sprintf("%s/auth/cli?state=%s&callback=http://localhost:%d/callback",
+			loginURL := fmt.Sprintf("%s/auth/cli?state=%s&callback=http://127.0.0.1:%d/callback",
 				appURL(),
 				state, callbackPort)
 

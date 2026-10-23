@@ -263,7 +263,11 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "personal_org", "personal orgs cannot have members; create a team org")
 		return
 	}
-	added, err := s.db.AddOrgMember(r.Context(), m.ID, in.Email, in.Role)
+	added, err := s.db.AddOrgMember(r.Context(), m.ID, in.Email, in.Role, m.Role == "owner")
+	if errors.Is(err, db.ErrOwnerChange) {
+		apiError(w, http.StatusForbidden, "forbidden", err.Error())
+		return
+	}
 	if err != nil {
 		s.dbError(w, err, "member")
 		return
@@ -338,6 +342,7 @@ func (s *Server) revokeLink(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, err, "link")
 		return
 	}
+	s.endGrants(r, m.ID, db.ScopeLink, l.ID, "link_revoked")
 	detail := map[string]any{"link_id": l.ID, "by_org_id": m.ID}
 	s.audit(r, l.CustomerOrg.ID, audit.ActionBridgeLinkRevoked, detail)
 	s.audit(r, l.VendorOrg.ID, audit.ActionBridgeLinkRevoked, detail)
@@ -357,8 +362,10 @@ type siteSecret struct {
 func (s *Server) siteSecret(site *db.Site, token string) siteSecret {
 	return siteSecret{
 		Site: site, Token: token, RelayKey: s.signer.KeyString(), RelayURL: s.cfg.PublicURL,
-		ConnectCm: fmt.Sprintf("tunr connect --relay %s --site %s --token %s --relay-key %s",
-			s.cfg.PublicURL, site.Name, token, s.signer.KeyString()),
+		// The token is pasted at the prompt, not put on the command line,
+		// so it stays out of shell history and the process list.
+		ConnectCm: fmt.Sprintf("tunr connect --relay %s --site %s --relay-key %s --token-stdin",
+			s.cfg.PublicURL, site.Name, s.signer.KeyString()),
 	}
 }
 
@@ -533,6 +540,9 @@ func (s *Server) patchResource(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, err, "resource")
 		return
 	}
+	if res.Status == "disabled" {
+		s.endGrants(r, m.ID, db.ScopeResource, res.ID, "resource_disabled")
+	}
 	s.audit(r, m.ID, audit.ActionBridgeResourceUpdated, map[string]any{"resource_id": res.ID})
 	writeJSON(w, http.StatusOK, res)
 }
@@ -611,6 +621,9 @@ func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, err, "agent")
 		return
 	}
+	if a.Status == "disabled" {
+		s.endGrants(r, m.ID, db.ScopeAgent, a.ID, "agent_disabled")
+	}
 	s.audit(r, m.ID, audit.ActionBridgeAgentStatusChanged, map[string]any{"agent_id": a.ID, "status": a.Status})
 	writeJSON(w, http.StatusOK, a)
 }
@@ -676,6 +689,9 @@ func (s *Server) revokeAgentToken(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, err, "agent token")
 		return
 	}
+	// The grants stay (the agent may hold another token); streams opened with
+	// this token end now, and closing them tells the connector.
+	s.access.KillToken(tid, "token_revoked")
 	s.audit(r, m.ID, audit.ActionBridgeAgentTokenRevoked, map[string]any{"agent_id": agentID, "token_id": tid})
 	w.WriteHeader(http.StatusNoContent)
 }

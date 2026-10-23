@@ -163,10 +163,13 @@ func (c *ControlPlane) appQuotaExceeded(ctx context.Context, userID, plan string
 	return "", false
 }
 
+// createAppReq has no upstream field on purpose: the relay alone decides
+// where an app's traffic goes (its container on tunr-apps). A caller-chosen
+// upstream would turn the public hostname into a proxy into the relay's
+// network.
 type createAppReq struct {
 	Name         string `json:"name"`
 	InternalPort int    `json:"internal_port"`
-	CloudURL     string `json:"cloud_url"` // optional v0 override (manual tracer bullet)
 }
 
 type appResp struct {
@@ -232,11 +235,8 @@ func (c *ControlPlane) createApp(w http.ResponseWriter, r *http.Request, userID 
 
 	id := newAppID()
 	edgeSecret := newEdgeSecret()
-	cloudURL := req.CloudURL
-	if cloudURL == "" {
-		// own-server default: relay reaches the app container by name on tunr-apps.
-		cloudURL = fmt.Sprintf("http://tunr-app-%s:%d", id, req.InternalPort)
-	}
+	// The relay reaches the app container by name on tunr-apps.
+	cloudURL := fmt.Sprintf("http://tunr-app-%s:%d", id, req.InternalPort)
 
 	app := db.App{
 		ID:           id,

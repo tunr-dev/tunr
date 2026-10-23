@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -38,14 +39,17 @@ const portalCSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-
 
 var emailRe = regexp.MustCompile(`^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,}$`)
 
-// loginLimiter: per e-mail and global sliding windows (in memory; one relay).
+// loginLimiter: per e-mail, per client IP and global sliding windows (in
+// memory; one relay). The per-IP window comes first so one caller can't use
+// up the global budget and block everyone else's sign-in.
 type loginLimiter struct {
 	mu     sync.Mutex
 	byMail map[string][]time.Time
+	byIP   map[string][]time.Time
 	all    []time.Time
 }
 
-func (l *loginLimiter) allow(email string, now time.Time) bool {
+func (l *loginLimiter) allow(ip, email string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	prune := func(ts []time.Time, win time.Duration) []time.Time {
@@ -57,9 +61,21 @@ func (l *loginLimiter) allow(email string, now time.Time) bool {
 		}
 		return out
 	}
+	if len(l.byIP) > 10000 { // bound memory under a wide spray
+		for k, ts := range l.byIP {
+			if len(prune(ts, 10*time.Minute)) == 0 {
+				delete(l.byIP, k)
+			}
+		}
+	}
+	l.byIP[ip] = prune(l.byIP[ip], 10*time.Minute)
+	if len(l.byIP[ip]) >= 10 {
+		return false
+	}
+	l.byIP[ip] = append(l.byIP[ip], now)
 	l.all = prune(l.all, time.Minute)
 	l.byMail[email] = prune(l.byMail[email], 10*time.Minute)
-	if len(l.all) >= 30 || len(l.byMail[email]) >= 5 {
+	if len(l.all) >= 120 || len(l.byMail[email]) >= 5 {
 		return false
 	}
 	l.all = append(l.all, now)
@@ -80,7 +96,7 @@ func (s *Server) registerPortal(mux *http.ServeMux) {
 		w.Header().Set("Cache-Control", "no-cache")
 		static.ServeHTTP(w, r)
 	}))
-	s.logins = &loginLimiter{byMail: map[string][]time.Time{}}
+	s.logins = &loginLimiter{byMail: map[string][]time.Time{}, byIP: map[string][]time.Time{}}
 	mux.HandleFunc("POST /api/v1/bridge/portal/login", s.portalLogin)
 	mux.HandleFunc("POST /api/v1/bridge/portal/verify", s.portalVerify)
 
@@ -88,6 +104,16 @@ func (s *Server) registerPortal(mux *http.ServeMux) {
 	h("GET /api/v1/bridge/me", s.portalMe)
 	h("GET /api/v1/bridge/orgs/{org}/settings", s.getOrgSettings)
 	h("PATCH /api/v1/bridge/orgs/{org}/settings", s.patchOrgSettings)
+}
+
+func (s *Server) clientIP(r *http.Request) string {
+	if s.ipOf != nil {
+		return s.ipOf(r)
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func (s *Server) portalLogin(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +128,7 @@ func (s *Server) portalLogin(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "invalid_email", "enter a valid e-mail address")
 		return
 	}
-	if !s.logins.allow(email, time.Now()) {
+	if !s.logins.allow(s.clientIP(r), email, time.Now()) {
 		w.Header().Set("Retry-After", "600")
 		apiError(w, http.StatusTooManyRequests, "rate_limited", "too many login links requested; try again in a few minutes")
 		return

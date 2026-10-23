@@ -93,6 +93,7 @@ func (b *bridgeMCP) OpenAccess(ctx context.Context, resource string, port int) (
 		}
 		return mcp.OpenedAccess{}, err
 	}
+	cl.SameUserOnly = chk.Kind == "tcp"
 	l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return mcp.OpenedAccess{}, err
