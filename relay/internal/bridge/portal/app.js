@@ -7,6 +7,8 @@ const API = '/api/v1/bridge';
 const LS_TOKEN = 'tunr.bridge.token';
 const LS_EMAIL = 'tunr.bridge.email';
 const LS_ORG = 'tunr.bridge.org';
+// LS_ASKED: which address this browser asked a sign-in link for, and when.
+const LS_ASKED = 'tunr.bridge.asked';
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -246,6 +248,7 @@ function viewLogin() {
       const res = await fetch(API + '/portal/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Could not send the link');
+      store.set(LS_ASKED, JSON.stringify({ email: email.value.trim().toLowerCase(), at: Date.now() }));
       out.append(h('div', { class: 'callout ok' }, 'Check your inbox for a sign-in link.'));
       if (data.dev_link) out.append(h('p', { class: 'small muted' }, 'Development mode — no mail provider configured:'), h('a', { href: data.dev_link }, 'Open the sign-in link'));
     } catch (e) { out.append(h('div', { class: 'callout' }, e.message)); }
@@ -260,7 +263,24 @@ function viewLogin() {
   email.focus();
 }
 
-async function verify(params) {
+// verify signs in at once only in the browser that asked for this address's
+// link in the last 15 minutes. Anywhere else (another device, or a link
+// someone else sent) it first shows which account the link signs in to.
+function verify(params) {
+  const email = (params.get('email') || '').toLowerCase();
+  let asked = null;
+  try { asked = JSON.parse(store.get(LS_ASKED) || 'null'); } catch { asked = null; }
+  if (asked && asked.email === email && Date.now() - asked.at < 15 * 60 * 1000) return doVerify(params);
+  render(h('div', { class: 'center' }, h('div', { class: 'card login' },
+    h('h1', {}, 'Sign in to tunr Bridge'),
+    h('p', { class: 'muted' }, 'This link signs you in as ', h('b', {}, email || '(no address)'),
+      '. Continue only if that is your address and you asked for this link.'),
+    h('button', { class: 'primary', onclick: () => doVerify(params) }, 'Sign in as ' + email),
+    h('p', { class: 'small' }, h('a', { href: '#/login' }, 'Not you? Go to the sign-in page')))));
+}
+
+async function doVerify(params) {
+  store.del(LS_ASKED);
   render(h('div', { class: 'center' }, h('div', { class: 'card login' }, h('p', {}, 'Signing you in…'))));
   try {
     const res = await fetch(API + '/portal/verify', {

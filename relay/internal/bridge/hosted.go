@@ -14,7 +14,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -105,9 +107,10 @@ func verifySig(secret, header string, body []byte, now time.Time) bool {
 // ── hosted app cache ─────────────────────────────────────────────────────────
 
 type hostedCache struct {
-	mu     sync.RWMutex
-	byName map[string]db.HostedApp
-	loaded time.Time
+	mu       sync.RWMutex
+	byName   map[string]db.HostedApp
+	loaded   time.Time
+	failedAt time.Time // last failed refresh: back off instead of hitting a down DB per request
 }
 
 func (s *Server) hostedApp(ctx context.Context, name string) (db.HostedApp, bool) {
@@ -127,20 +130,74 @@ func (s *Server) hostedApp(ctx context.Context, name string) (db.HostedApp, bool
 }
 
 func (s *Server) refreshHosted(ctx context.Context) {
+	s.hosted.mu.RLock()
+	backoff := time.Since(s.hosted.failedAt) < 5*time.Second
+	s.hosted.mu.RUnlock()
+	if backoff {
+		return
+	}
 	cctx, cancel := context.WithTimeout(ctx, dbTimeout)
 	defer cancel()
 	apps, err := s.db.ListHostedApps(cctx)
 	if err != nil {
 		logger.Warn("bridge: hosted apps: %v", err)
+		s.hosted.mu.Lock()
+		s.hosted.failedAt = time.Now()
+		if s.hosted.loaded.IsZero() && len(s.hosted.byName) == 0 {
+			// Never loaded (relay started with the DB down): guard the
+			// hostnames from the disk mirror; triggers wait for the DB.
+			for _, name := range readHostedMirror(s.cfg.HostedCache) {
+				s.hosted.byName[name] = db.HostedApp{Name: name}
+			}
+		}
+		s.hosted.mu.Unlock()
 		return // keep serving the last known set
 	}
 	m := make(map[string]db.HostedApp, len(apps))
+	names := make([]string, 0, len(apps))
 	for _, a := range apps {
 		m[a.Name] = a
+		names = append(names, a.Name)
 	}
 	s.hosted.mu.Lock()
-	s.hosted.byName, s.hosted.loaded = m, time.Now()
+	s.hosted.byName, s.hosted.loaded, s.hosted.failedAt = m, time.Now(), time.Time{}
 	s.hosted.mu.Unlock()
+	writeHostedMirror(s.cfg.HostedCache, names)
+}
+
+// The mirror holds names only (no secrets): enough to keep a hostname guarded.
+func readHostedMirror(path string) []string {
+	if path == "" {
+		return nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	if json.Unmarshal(b, &names) != nil {
+		return nil
+	}
+	return names
+}
+
+func writeHostedMirror(path string, names []string) {
+	if path == "" {
+		return
+	}
+	sort.Strings(names)
+	b, _ := json.Marshal(names)
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, b) {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		logger.Debug("bridge: hosted mirror: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		logger.Debug("bridge: hosted mirror: %v", err)
+	}
 }
 
 // ── routes ───────────────────────────────────────────────────────────────────

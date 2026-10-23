@@ -3,6 +3,24 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Security
+- **bridge:** a portal sign-in link asks before signing in unless this browser
+  requested that address's link (login CSRF).
+- **bridge:** a hosted agent's app is managed by its org's current
+  owners/admins; whoever deployed it loses control with the role.
+- **bridge:** hosted-agent hostnames stay guarded when the relay starts while
+  Postgres is down.
+- **bridge:** a busy agent stream gets backpressure instead of disconnecting
+  the whole site.
+
+### Removed
+- **relay:** the unused `/auth/magic` and `/auth/verify` routes (sign-in lives
+  in the dashboard).
+- **cli:** the `e2e` alias of `tunr tls`: raw TLS tunnels are not end-to-end
+  encrypted (`tls-proxy` still works).
+
 ## v0.8.1 — 2026-10-23
 
 ### Security

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/tunr-dev/tunr/relay/internal/auth"
@@ -31,6 +32,10 @@ type Config struct {
 	MailFrom     string // RESEND_FROM
 	PortalURL    string // TUNR_BRIDGE_PORTAL_URL: deep links in e-mails
 	MetricsToken string // TUNR_METRICS_TOKEN: enables /api/v1/bridge/metrics
+	// HostedCache mirrors hosted-agent app names to disk so their hostnames
+	// stay guarded if the relay starts while Postgres is down
+	// (TUNR_HOSTED_CACHE; default next to TUNR_ROUTE_CACHE).
+	HostedCache string
 }
 
 // ConfigFromEnv reads the bridge config through getenv (os.Getenv in main,
@@ -52,7 +57,16 @@ func ConfigFromEnv(getenv func(string) string) Config {
 	if portal == "" {
 		portal = "https://app." + domain + "/bridge"
 	}
+	hostedCache := getenv("TUNR_HOSTED_CACHE")
+	if hostedCache == "" {
+		rc := getenv("TUNR_ROUTE_CACHE")
+		if rc == "" {
+			rc = "/var/lib/tunr/routes.json"
+		}
+		hostedCache = filepath.Join(filepath.Dir(rc), "hosted.json")
+	}
 	return Config{
+		HostedCache:  hostedCache,
 		Enabled:      flag(EnvEnabled),
 		SigningKey:   getenv(auth.EnvGrantSigningKey),
 		PublicURL:    strings.TrimRight(public, "/"),

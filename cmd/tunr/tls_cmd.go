@@ -23,7 +23,7 @@ func newTLSCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "tls",
-		Aliases: []string{"tls-proxy", "e2e"},
+		Aliases: []string{"tls-proxy"},
 		Short:   "Expose a local TLS port as a raw tunnel (experimental)",
 		Long: `Forward a local TLS port as a raw tunnel — the same transport as 'tunr tcp'.
 

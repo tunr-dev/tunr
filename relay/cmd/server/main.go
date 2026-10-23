@@ -145,9 +145,9 @@ func main() {
 	// Browsers connect to TCP tunnels via WebSocket
 	mux.HandleFunc("/tunnel/tcp", handler.ServeBrowserTCP)
 
-	// ── Auth endpoints ──
-	mux.HandleFunc("/auth/magic", handleMagicRequest(database, jwtAuth, cfg.Domain, rateLimiter, cfg.DevMode))
-	mux.HandleFunc("/auth/verify", handleMagicVerify(database, jwtAuth, cfg.DevMode))
+	// ── Auth ──
+	// Giriş dashboard'da (app.tunr.sh: magic link, Google, GitHub; CLI için
+	// /auth/cli). Relay'in eski /auth/magic + /auth/verify uçları kaldırıldı.
 
 	// ── API endpoints ──
 	mux.HandleFunc("/api/v1/status", handleStatus(registry))
@@ -268,125 +268,6 @@ func withBaseMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-// ─── Auth Handlers ────────────────────────────────────────────────────────────
-
-func handleMagicRequest(database *db.DB, _ *auth.JWTAuth, domain string, rl *relay.RateLimiter, devMode bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// GÜVENLİK: Auth endpoint'leri IP başına sıkı rate limit ister
-		// (token spam'i, kullanıcı enumeration ve e-posta flood önlenir).
-		if rl != nil && !rl.Allow("authmagic:"+relay.ClientIP(r), "anon") {
-			w.Header().Set("Retry-After", "60")
-			http.Error(w, "too many requests", http.StatusTooManyRequests)
-			return
-		}
-
-		var req struct {
-			Email string `json:"email"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
-			http.Error(w, "email gerekli", http.StatusBadRequest)
-			return
-		}
-
-		// Magic token üret
-		token, err := auth.GenerateMagicToken()
-		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
-		}
-
-		// DB'ye kaydet (15 dakika geçerli)
-		if database != nil {
-			if err := database.SaveMagicToken(r.Context(), token, req.Email,
-				time.Now().Add(15*time.Minute)); err != nil {
-				http.Error(w, "server error", http.StatusInternalServerError)
-				return
-			}
-		}
-
-		// Magic link oluştur (production'da e-posta ile gönderilir)
-		magicLink := auth.MagicLink("https://"+domain, req.Email, token)
-
-		resp := map[string]string{
-			"message": "Magic link e-posta adresinize gönderildi",
-			"email":   req.Email,
-		}
-
-		// GÜVENLİK: Token'ı HTTP yanıtına ASLA production'da koyma — bu
-		// herkesin herhangi bir e-posta için giriş yapmasını sağlar (hesap ele
-		// geçirme). Sadece TUNR_DEV_MODE=1 iken link'i döndür ve logla.
-		if devMode {
-			logger.Info("Magic link (dev): %s", magicLink)
-			resp["_dev_link"] = magicLink
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	}
-}
-
-func handleMagicVerify(database *db.DB, jwtAuth *auth.JWTAuth, devMode bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
-		if token == "" {
-			http.Error(w, "token gerekli", http.StatusBadRequest)
-			return
-		}
-
-		var email string
-		var err error
-		if database != nil {
-			// Token'ı tüket (tek kullanımlık)
-			email, err = database.ConsumeMagicToken(r.Context(), token)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusUnauthorized)
-				return
-			}
-		} else {
-			// GÜVENLİK: DB yokken token doğrulanamaz. Bu durumda herhangi bir
-			// token'a JWT vermek kimlik doğrulamasını tamamen bypass eder.
-			// Sadece açıkça dev mode'da izin ver.
-			if !devMode {
-				http.Error(w, "auth unavailable: database not configured", http.StatusServiceUnavailable)
-				return
-			}
-			email = "dev@tunr.sh"
-		}
-
-		// Kullanıcı oluştur/bul
-		var userID string
-		if database != nil {
-			user, _, err := database.GetOrCreateUser(r.Context(), email)
-			if err != nil {
-				http.Error(w, "server error", http.StatusInternalServerError)
-				return
-			}
-			userID = user.ID
-		} else {
-			userID = "dev-user-id"
-		}
-
-		// JWT token oluştur
-		jwt, err := jwtAuth.Issue(userID, email, "free")
-		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"token":   jwt,
-			"user_id": userID,
-			"email":   email,
-		})
-	}
 }
 
 // ─── Status & Health ──────────────────────────────────────────────────────────

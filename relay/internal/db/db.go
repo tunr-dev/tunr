@@ -147,52 +147,6 @@ func (db *DB) LinkPaddleCustomerByEmail(ctx context.Context, email, paddleCustom
 	return tag.RowsAffected() > 0, nil
 }
 
-// ─── MAGIC TOKEN İŞLEMLERİ ───────────────────────────────────────────────────
-
-// SaveMagicToken — magic link token'ı kaydet
-func (db *DB) SaveMagicToken(ctx context.Context, token, email string, expiresAt time.Time) error {
-	const q = `INSERT INTO magic_tokens (token, email, expires_at) VALUES ($1, $2, $3)`
-	_, err := db.pool.Exec(ctx, q, token, email, expiresAt)
-	return err
-}
-
-// ConsumeMagicToken — token'ı doğrula ve tek seferlik kullanıma işaretle
-// GÜVENLİK: FOR UPDATE ile transaction'da kullanılmalı (çift tıklama saldırısı önlenir)
-func (db *DB) ConsumeMagicToken(ctx context.Context, token string) (string, error) {
-	tx, err := db.pool.Begin(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var email string
-	var usedAt *time.Time
-	var expiresAt time.Time
-	const q = `SELECT email, expires_at, used_at FROM magic_tokens WHERE token = $1 FOR UPDATE`
-	err = tx.QueryRow(ctx, q, token).Scan(&email, &expiresAt, &usedAt)
-	if err != nil {
-		return "", fmt.Errorf("geçersiz token")
-	}
-
-	// Süresi dolmuş mu?
-	if time.Now().After(expiresAt) {
-		return "", fmt.Errorf("token süresi dolmuş")
-	}
-
-	// Zaten kullanılmış mı?
-	if usedAt != nil {
-		return "", fmt.Errorf("token zaten kullanılmış")
-	}
-
-	// Kullanıldı olarak işaretle
-	const markQ = `UPDATE magic_tokens SET used_at = now() WHERE token = $1`
-	if _, err := tx.Exec(ctx, markQ, token); err != nil {
-		return "", err
-	}
-
-	return email, tx.Commit(ctx)
-}
-
 // ─── TUNNEL KAYITLARI ────────────────────────────────────────────────────────
 
 // RecordTunnelConnect — tunnel bağlantısını DB'ye kaydet

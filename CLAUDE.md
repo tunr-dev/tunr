@@ -64,7 +64,7 @@ Browser → relay.tunr.sh  ──[WebSocket control channel]──  tunr CLI  �
 
 ### Relay side (`relay/`)
 
-- **`relay/cmd/server/main.go`** — registers HTTP routes: `/tunnel/connect` (CLI WS), `/tunnel/tcp` (browser WS for TCP tunnels), `/auth/magic` + `/auth/verify`, `/api/v1/*`, `/webhook/paddle`, and `/` → `proxy.ServeHTTP` (subdomain-based dispatch).
+- **`relay/cmd/server/main.go`** — registers HTTP routes: `/tunnel/connect` (CLI WS), `/tunnel/tcp` (browser WS for TCP tunnels), `/api/v1/*`, `/webhook/paddle`, and `/` → `proxy.ServeHTTP` (subdomain-based dispatch).
 - **`relay/internal/relay/`** — `Registry` maps subdomains → CLI WebSocket sessions; `Handler` accepts CLI connections; `Proxy` routes inbound HTTP by subdomain; `proxy_ws.go` handles browser WS upgrades and bridges frames to the CLI; `tcp_handler.go` handles raw TCP tunnels; `rate_limiter.go` is in-memory per-IP; `balancer.go` carries multi-region routing metadata (regions `ams`, `sea`, `sin`).
 - **`relay/internal/relay/plans.go`** — per-plan quotas (apps, app memory, deploys/day, open tunnels), enforced in `controlplane.go` and `handler.go`. The plan is read from the **DB**, not the JWT claim (the claim is frozen at login; the Paddle webhook updates the DB). **The Free/Pro cards on tunr.sh and in the dashboard must list only what this file enforces.** Per-minute request limits live in `rate_limiter.go`.
 - **`relay/internal/auth/`** — JWT issuance + magic-link tokens.

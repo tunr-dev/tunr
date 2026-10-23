@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -229,4 +230,30 @@ func TestHostedTriggersAndPrivacy(t *testing.T) {
 	if len(*got) != before {
 		t.Errorf("disabled agent received %d requests", len(*got)-before)
 	}
+}
+
+// A relay that starts while Postgres is down still guards agent hostnames it
+// saw before, from the disk mirror.
+func TestHostedMirrorGuardsColdStart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosted.json")
+	writeHostedMirror(path, []string{"bot"})
+	if got := readHostedMirror(path); len(got) != 1 || got[0] != "bot" {
+		t.Fatalf("mirror = %v", got)
+	}
+	s := &Server{cfg: Config{HostedCache: path}, hosted: &hostedCache{byName: map[string]db.HostedApp{}}}
+	s.db = brokenDB(t)
+	app, ok := s.hostedApp(context.Background(), "bot")
+	if !ok || app.Active {
+		t.Fatalf("cold start with DB down: ok=%v active=%v, want a guarded inactive entry", ok, app.Active)
+	}
+}
+
+// brokenDB points at a closed port: every query fails fast.
+func brokenDB(t *testing.T) *db.DB {
+	t.Helper()
+	d, _ := db.New(context.Background(), "postgres://x@127.0.0.1:1/x?connect_timeout=1") // non-nil even when unreachable
+	if d == nil {
+		t.Fatal("db.New returned nil")
+	}
+	return d
 }

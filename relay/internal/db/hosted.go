@@ -156,3 +156,22 @@ func (db *DB) AppKind(ctx context.Context, appID string) (string, error) {
 	err := db.pool.QueryRow(ctx, `SELECT kind FROM apps WHERE id = $1`, appID).Scan(&k)
 	return k, mapErr(err)
 }
+
+// AgentAppAdmin reports whether appID is a hosted agent's app and, if so,
+// whether userID is currently an owner or admin of the org that owns that
+// agent. isAgentApp=false means the app has no agent (a web app or an orphan).
+func (db *DB) AgentAppAdmin(ctx context.Context, appID, userID string) (isAgentApp, admin bool, err error) {
+	err = db.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM agents g WHERE g.app_id = $1),
+		       EXISTS (SELECT 1 FROM agents g JOIN org_members m ON m.org_id = g.org_id
+		               WHERE g.app_id = $1 AND m.user_id::text = $2 AND m.role IN ('owner', 'admin'))`,
+		appID, userID).Scan(&isAgentApp, &admin)
+	return isAgentApp, admin, err
+}
+
+// SetAppOwner moves an app to another user (a hosted agent redeployed by a
+// current org admin).
+func (db *DB) SetAppOwner(ctx context.Context, appID, userID string) error {
+	_, err := db.pool.Exec(ctx, `UPDATE apps SET user_id = $2::uuid, updated_at = now() WHERE id = $1`, appID, userID)
+	return err
+}
