@@ -1,0 +1,48 @@
+# Always-on demo customer for tunr Bridge: "Acme Muhasebe", an accounting
+# office whose ERP database sits on an office server. Fake data only.
+#
+#   cd scripts/demo && docker compose -p tunr-demo up -d --build
+#
+# .env (next to this file): SITE_TOKEN, RELAY_KEY, ACME_DB_OWNER_PASSWORD.
+# The database is on an internal network; the connector is the only thing
+# that reaches it, and it only dials out to the relay.
+#
+# Never name a service "relay" here: on a shared Docker network that name
+# would collide with the production relay's DNS alias.
+
+name: tunr-demo
+
+services:
+  acme-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${ACME_DB_OWNER_PASSWORD:?set in .env}
+    volumes:
+      - acme-db:/var/lib/postgresql/data
+      - ./acme-seed.sql:/docker-entrypoint-initdb.d/acme-seed.sql:ro
+    networks: [acme-office]
+
+  acme-connector:
+    build: .
+    command: ["/demo/connector.sh"]
+    restart: unless-stopped
+    environment:
+      RELAY_URL: https://bridge.tunr.sh
+      SITE_NAME: istanbul-office
+      SITE_TOKEN: ${SITE_TOKEN:?set in .env}
+      RELAY_KEY: ${RELAY_KEY:?set in .env}
+      ACME_DB_OWNER_PASSWORD: ${ACME_DB_OWNER_PASSWORD}
+    volumes:
+      - connector-state:/etc/tunr
+    depends_on: [acme-db]
+    networks: [acme-office, outbound]
+
+networks:
+  acme-office:
+    internal: true
+  outbound: {}
+
+volumes:
+  acme-db: {}
+  connector-state: {}

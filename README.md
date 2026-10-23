@@ -20,7 +20,7 @@ Read-only, time-boxed, approved by the customer, and on the record — through o
 [![CI](https://github.com/tunr-dev/tunr/actions/workflows/ci.yml/badge.svg)](https://github.com/tunr-dev/tunr/actions/workflows/ci.yml)
 [![Stars](https://img.shields.io/github/stars/tunr-dev/tunr?style=flat&color=7c3aed)](https://github.com/tunr-dev/tunr/stargazers)
 
-[tunr.sh](https://tunr.sh) · [Docs](https://tunr.sh/docs/) · [Dashboard](https://app.tunr.sh) · [Discussions](https://github.com/tunr-dev/tunr/discussions) · [Contributing](docs/CONTRIBUTING.md)
+[tunr.sh](https://tunr.sh) · [Live demo](https://app.tunr.sh/demo) · [Docs](https://tunr.sh/docs/) · [Dashboard](https://app.tunr.sh) · [Discussions](https://github.com/tunr-dev/tunr/discussions) · [Contributing](docs/CONTRIBUTING.md)
 
 </div>
 
