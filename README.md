@@ -558,11 +558,15 @@ means there is no code yet.
 
 | | Status |
 |---|---|
-| **Agent Bridge**: connector, grants, read-only Postgres proxy, end-to-end TLS, portal, MCP tools | 🚧 Preview |
+| **Agent Bridge**: connector, grants, read-only Postgres proxy, end-to-end TLS, MCP tools — live on tunr.sh since v0.8.0 | 🚧 Preview |
+| Bridge dashboard ([app.tunr.sh](https://app.tunr.sh)): approvals, sites, agents & tokens, grants with per-query summaries, audit + CSV/JSON export, webhooks, org settings | 🚧 Preview |
+| Bridge orgs: members with owner / admin / approver / member roles, vendor↔customer links, two-approver rule for read-write | 🚧 Preview |
+| Self-hosted bridge (`docker compose`, built-in `/portal/`, on-demand TLS) | 🚧 Preview |
 | **Hosted agents** (`tunr agent deploy`, cron/webhook triggers, `/data` volume) | 🧪 Early access (off on tunr.sh) |
 | Bridge: MySQL / MSSQL proxies, HTTP resources, white-label connector for vendors | 📋 Planned |
 | Bridge: volume size quotas, egress blocklist for hosted agents | 📋 Planned |
-| HTTP/WS, TCP, UDP, TLS tunnels | ✅ Stable |
+| HTTP/WS tunnels | ✅ Stable |
+| Raw TCP / UDP / TLS tunnels (WebSocket clients only, not end-to-end) | 🧪 Experimental |
 | Demo features (freeze, demo, widget, auto-login) | ✅ Stable |
 | Access control (password, token, IP, TTL) | ✅ Stable |
 | Inspector + replay, Prometheus, service install | ✅ Stable |
