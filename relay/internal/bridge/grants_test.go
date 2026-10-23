@@ -65,8 +65,8 @@ func newP4(t *testing.T) *p4 {
 	e.vendor, _ = login("dev@vendor.test")
 
 	cust, _ := d.CreateOrg(ctx, ownerID, "Acme", "acme", "customer")
-	_, _ = d.AddOrgMember(ctx, cust.ID, "second@acme.test", "approver")
-	_, _ = d.AddOrgMember(ctx, cust.ID, "member@acme.test", "member")
+	_, _ = d.AddOrgMember(ctx, cust.ID, "second@acme.test", "approver", true)
+	_, _ = d.AddOrgMember(ctx, cust.ID, "member@acme.test", "member", true)
 	e.call(e.vendor, "POST", "/orgs", map[string]string{"name": "V", "slug": "vendor-co", "kind": "vendor"}, 201, nil)
 	e.call(e.owner, "POST", "/orgs/acme/links", map[string]string{"vendor_slug": "vendor-co"}, 201, nil)
 	var site siteSecret

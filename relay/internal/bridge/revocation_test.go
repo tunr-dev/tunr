@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/tunr-dev/tunr/relay/internal/db"
+	"github.com/tunr-dev/tunr/relay/internal/db/dbtest"
 )
 
 func (e *p4) grantStatus(id string) string {
@@ -102,4 +103,21 @@ func (e *p4) approveHalfRW() string {
 	g := e.request("rw", "acme/nas", "1h", 201)
 	e.call(e.owner, "POST", "/orgs/acme/grants/"+g.ID+"/approve", nil, 200, nil)
 	return g.ID
+}
+
+func TestMemberUpsertKeepsOwners(t *testing.T) {
+	e := newP4(t)
+	ctx := context.Background()
+	acme := mustOrg(t, e.d, "acme")
+	if _, err := e.d.AddOrgMember(ctx, acme, "admin@acme.test", "admin", true); err != nil {
+		t.Fatal(err)
+	}
+	adminTok, _ := e.s.jwt.Issue(dbtest.User(t, e.d, "admin@acme.test"), "admin@acme.test", "free")
+	// An admin can't change an owner's role.
+	e.call(adminTok, "POST", "/orgs/acme/members", map[string]string{"email": "owner@acme.test", "role": "member"}, 403, nil)
+	// The last owner can't demote themselves either.
+	e.call(e.owner, "POST", "/orgs/acme/members", map[string]string{"email": "owner@acme.test", "role": "admin"}, 403, nil)
+	// With a second owner, an owner may.
+	e.call(e.owner, "POST", "/orgs/acme/members", map[string]string{"email": "second@acme.test", "role": "owner"}, 201, nil)
+	e.call(e.owner, "POST", "/orgs/acme/members", map[string]string{"email": "owner@acme.test", "role": "admin"}, 201, nil)
 }

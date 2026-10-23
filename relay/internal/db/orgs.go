@@ -215,9 +215,14 @@ func (db *DB) GetOrgBySlug(ctx context.Context, slug string) (*Org, error) {
 	return scanOrg(db.pool.QueryRow(ctx, `SELECT `+orgCols+` FROM orgs o WHERE o.slug = $1`, slug))
 }
 
+// ErrOwnerChange: an existing owner's role can only be changed by an owner,
+// and never so that the org is left without one.
+var ErrOwnerChange = errors.New("only an owner can change an owner's role, and an org keeps at least one owner")
+
 // AddOrgMember adds (or re-roles) a user by email, creating the user row if the
 // person has never signed in — the same row magic-link login would create.
-func (db *DB) AddOrgMember(ctx context.Context, orgID, email, role string) (*OrgMember, error) {
+// byOwner says whether the caller is an owner of the org.
+func (db *DB) AddOrgMember(ctx context.Context, orgID, email, role string, byOwner bool) (*OrgMember, error) {
 	u, _, err := db.GetOrCreateUser(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if err != nil {
 		return nil, err
@@ -226,8 +231,13 @@ func (db *DB) AddOrgMember(ctx context.Context, orgID, email, role string) (*Org
 	err = db.pool.QueryRow(ctx, `
 		INSERT INTO org_members (org_id, user_id, role) VALUES ($1, $2::uuid, $3)
 		ON CONFLICT (org_id, user_id) DO UPDATE SET role = EXCLUDED.role
-		RETURNING user_id::text, role, created_at`, orgID, u.ID, role).
+		WHERE org_members.role <> 'owner' OR EXCLUDED.role = 'owner'
+		   OR ($4 AND (SELECT count(*) FROM org_members o WHERE o.org_id = $1 AND o.role = 'owner') > 1)
+		RETURNING user_id::text, role, created_at`, orgID, u.ID, role, byOwner).
 		Scan(&m.UserID, &m.Role, &m.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrOwnerChange
+	}
 	if err != nil {
 		return nil, mapErr(err)
 	}

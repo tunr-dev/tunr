@@ -263,7 +263,11 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "personal_org", "personal orgs cannot have members; create a team org")
 		return
 	}
-	added, err := s.db.AddOrgMember(r.Context(), m.ID, in.Email, in.Role)
+	added, err := s.db.AddOrgMember(r.Context(), m.ID, in.Email, in.Role, m.Role == "owner")
+	if errors.Is(err, db.ErrOwnerChange) {
+		apiError(w, http.StatusForbidden, "forbidden", err.Error())
+		return
+	}
 	if err != nil {
 		s.dbError(w, err, "member")
 		return
