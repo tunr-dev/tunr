@@ -81,7 +81,11 @@ approved grant. The resource's real address never reaches this machine.`,
 				return fmt.Errorf("listen on 127.0.0.1:%d: %w", port, err)
 			}
 			addr := l.Addr().(*net.TCPAddr)
+			cl.SameUserOnly = chk.Kind == "tcp"
 			term.Green.Println(fmt.Sprintf("  ● %s (%s, %s) → 127.0.0.1:%d", args[0], chk.Kind, chk.Mode, addr.Port))
+			if chk.Kind == "tcp" && !access.PeerCheckSupported {
+				term.Yellow.Println("  ! Raw TCP has no password: on this OS any local user can connect to this port while it is open.")
+			}
 			term.Dim.Println(fmt.Sprintf("  grant %s valid until %s", chk.GrantID, chk.GrantExpiresAt.Local().Format(time.RFC1123)))
 			if chk.Kind == "postgres" {
 				// The DSN goes to stdout alone so scripts can capture it.
