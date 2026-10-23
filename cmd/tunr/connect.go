@@ -31,7 +31,7 @@ import (
 
 // connect.go — `tunr connect`: the Agent Bridge site connector (customer side).
 //
-//	tunr connect --relay URL --site NAME --token TOKEN --relay-key KEY   # first run (from the portal)
+//	tunr connect --relay URL --site NAME --relay-key KEY --token-stdin   # first run (from the portal)
 //	tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo --user tunr_ro
 //	tunr connect                                                          # run (foreground)
 //	sudo tunr connect install                                             # run as a service
@@ -63,16 +63,20 @@ never leave this machine — and only for grants you approved.
 First run: paste the command shown when you created the site in the portal.
 Then add resources with 'tunr connect resource add', and install it as a
 service with 'tunr connect install'.`,
-		Example: `  tunr connect --relay https://bridge.tunr.sh --site istanbul-ofis --token tunr_site_… --relay-key ed25519:…
+		Example: `  tunr connect --relay https://bridge.tunr.sh --site istanbul-ofis --relay-key ed25519:… --token-stdin --setup-only
   tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo --user tunr_ro
   tunr connect`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := connectCfgPath()
+			// A token passed as --token is visible in the process list, so
+			// that process only does setup; the long-running connector reads
+			// the token from the secret store.
+			fromFlag := token != "" && !tokenStdin
 			if tokenStdin {
-				t, err := readLine(os.Stdin)
+				t, err := readPassword(!xterm.IsTerminal(int(os.Stdin.Fd())), "Site token (tunr_site_…): ")
 				if err != nil {
-					return fmt.Errorf("read token from stdin: %w", err)
+					return fmt.Errorf("read token: %w", err)
 				}
 				token = t
 			}
@@ -83,16 +87,20 @@ service with 'tunr connect install'.`,
 				if setupOnly {
 					return nil
 				}
+				if fromFlag {
+					term.Dim.Println("  Setup done. Start the connector with: tunr connect (or tunr connect install)")
+					return nil
+				}
 			} else if site != "" || relayKey != "" {
-				return errors.New("--site and --relay-key are only used together with --token (first-time setup)")
+				return errors.New("--site and --relay-key are only used together with --token-stdin (first-time setup)")
 			}
 			return connectRun(cmd.Context(), path, healthAddr)
 		},
 	}
 	cmd.PersistentFlags().StringVar(&connectConfigPath, "config", "", "Connector config path (default "+connector.DefaultPath()+")")
 	cmd.Flags().StringVar(&site, "site", "", "Site name (first-time setup)")
-	cmd.Flags().StringVar(&token, "token", "", "Site token from the portal (first-time setup; stored in the secret store, not the config)")
-	cmd.Flags().BoolVar(&tokenStdin, "token-stdin", false, "Read the site token from stdin instead of --token")
+	cmd.Flags().StringVar(&token, "token", "", "Site token (first-time setup only; prefer --token-stdin, which keeps it out of shell history)")
+	cmd.Flags().BoolVar(&tokenStdin, "token-stdin", false, "Read the site token from a prompt, or from stdin when piped")
 	cmd.Flags().StringVar(&relayKey, "relay-key", "", "Relay public key to pin, from the portal (first-time setup)")
 	cmd.Flags().StringVar(&secretStore, "secret-store", "", `Where secrets live: "keychain" (default) or "file" (headless servers)`)
 	cmd.Flags().BoolVar(&setupOnly, "setup-only", false, "Write config and store the token, then exit")

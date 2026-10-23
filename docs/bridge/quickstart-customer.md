@@ -24,7 +24,8 @@ relay's key filled in. On a Linux server inside that network:
 ```bash
 curl -fsSL https://tunr.sh/install.sh | sh
 sudo tunr connect --relay https://<relay> --site istanbul-office \
-  --token tunr_site_… --relay-key ed25519:… --secret-store file --setup-only
+  --relay-key ed25519:… --token-stdin --secret-store file --setup-only
+# paste the site token (tunr_site_…) at the prompt
 ```
 
 The connector only makes outbound HTTPS connections. Open no firewall ports.

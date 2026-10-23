@@ -358,8 +358,10 @@ type siteSecret struct {
 func (s *Server) siteSecret(site *db.Site, token string) siteSecret {
 	return siteSecret{
 		Site: site, Token: token, RelayKey: s.signer.KeyString(), RelayURL: s.cfg.PublicURL,
-		ConnectCm: fmt.Sprintf("tunr connect --relay %s --site %s --token %s --relay-key %s",
-			s.cfg.PublicURL, site.Name, token, s.signer.KeyString()),
+		// The token is pasted at the prompt, not put on the command line,
+		// so it stays out of shell history and the process list.
+		ConnectCm: fmt.Sprintf("tunr connect --relay %s --site %s --relay-key %s --token-stdin",
+			s.cfg.PublicURL, site.Name, s.signer.KeyString()),
 	}
 }
 

@@ -350,7 +350,8 @@ async function viewSites() {
     if (!(await confirmBox('Rotate the site token?', 'The running connector is disconnected and must be set up again with the new token.', 'Rotate', true))) return;
     const r = await api('POST', orgPath('/sites/' + s.id + '/rotate-token'));
     const d = h('dialog', {}, h('h2', { style: 'margin-top:0' }, 'New connector command'),
-      h('div', { class: 'callout' }, 'Shown once. Run it on the connector machine.'), copyBlock(r.connect_command, true),
+      h('div', { class: 'callout' }, 'Shown once. Run the command on the connector machine and paste the token when asked.'),
+      copyBlock(r.connect_command + ' --setup-only'), h('span', { class: 'small muted' }, 'Token:'), copyBlock(r.token, true),
       h('div', { class: 'row', style: 'justify-content:flex-end' }, h('button', { class: 'primary', onclick: () => d.close() }, 'Done')));
     d.addEventListener('close', () => { d.remove(); route(); });
     document.body.append(d); d.showModal();
@@ -413,8 +414,9 @@ async function viewNewSite() {
         h('li', {}, h('b', {}, 'Install tunr on a machine inside the network'), ' (it only needs outbound HTTPS):',
           copyBlock('curl -fsSL https://tunr.sh/install.sh | sh')),
         h('li', {}, h('b', {}, 'Connect it to this site.'), ' Linux server (runs as a service):',
-          copyBlock('sudo tunr connect ' + base + ' --secret-store file --setup-only', true),
-          h('span', { class: 'small muted' }, 'macOS or a desktop:'), copyBlock('tunr connect ' + base + ' --setup-only', true)),
+          copyBlock('sudo tunr connect ' + base + ' --secret-store file --setup-only'),
+          h('span', { class: 'small muted' }, 'macOS or a desktop:'), copyBlock('tunr connect ' + base + ' --setup-only'),
+          h('span', { class: 'small muted' }, 'Paste this token when asked:'), copyBlock(r.token, true)),
         h('li', {}, h('b', {}, 'Name what agents may reach.'), ' The address never leaves this machine:',
           copyBlock('sudo tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo')),
         h('li', {}, h('b', {}, 'Create a read-only database role'), ' and give the SQL to your DBA:',
