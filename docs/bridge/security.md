@@ -32,7 +32,7 @@ guarantee is tested, and — just as plainly — what it does not guarantee.
 | 5 | **No inbound ports.** | The connector dials out; the relay cannot dial in. | e2e step 8 (relay and agent cannot reach the customer network) |
 | 6 | **Short-lived credentials.** | Grant tokens ≤15 min; agent tokens ≤24 h (hosted agents: 1 h, renewed); site tokens can be rotated from the portal at any time. | `relay/internal/auth` tests |
 | 7 | **Everything is recorded.** | Grant requests, approvals, denials, revocations, expiries, every stream opened and closed (with byte counts) and a summary of every database query (command, tables, rows, duration, blocked) go to your audit log, exportable as CSV/JSON. Query *text* is kept only if you turn it on. | `TestAccessStreamRoundTrip`, `TestAccessQuerySummariesPersisted`; e2e step 9 |
-| 8 | **You can cut access instantly.** | Revoking a grant closes its open connections on both sides; “Cut all access” on a site also revokes every approved grant so agents can't reconnect. A local `tunr connect kill` works even without the relay. | `TestRevokeCutsLiveStreamFast` (2 s bound; measured ~4 ms in e2e), `TestKillSiteRevokesAndCuts`, connector kill-switch test |
+| 8 | **You can cut access instantly.** | Revoking a grant closes its open connections on both sides. Revoking a vendor link, disabling a resource or an agent, or revoking an agent token also ends the open connections and grants they cover. “Cut all access” on a site revokes every approved grant, denies pending ones and turns auto-approve off, so agents can't reconnect without a person. A local `tunr connect kill` works even without the relay. | `TestRevokeCutsLiveStreamFast` (2 s bound; measured ~4 ms in e2e), `TestKillSiteRevokesAndCuts`, `TestRevocationCascades`, `TestKillSiteTurnsOffAutoApprove`, connector kill-switch test |
 | 9 | **Tenants are isolated.** | Every database query is filtered by organization; another org's objects are indistinguishable from missing ones. | `TestBridgeTenantIsolation`, `TestAPITenantIsolation` (every endpoint) |
 | 10 | **The relay can't read your data in transit.** | Streams are end-to-end TLS 1.3 between the vendor's `tunr access` and your connector, pinned to your connector's certificate. | `internal/bridge/access` `TestEndToEndTLSPinning`; e2e step 7 |
 
@@ -68,4 +68,11 @@ such grants always need **two different approvers**.
   protection is file ownership.
 - The connector's systemd unit runs with `ProtectSystem=strict`,
   `NoNewPrivileges`, private `/tmp` and devices, and outbound sockets only.
+- On the vendor side, `tunr access` listens on `127.0.0.1` only. Postgres
+  ports need the per-process DSN secret. Raw TCP has no password of its own:
+  on Linux the port refuses connections from other users' processes; on
+  macOS and Windows any local user can reach it while it is open, and
+  `tunr access` says so.
+- The site token is entered at a prompt (`--token-stdin`) so it stays out of
+  shell history and process lists.
 - Report vulnerabilities as described in [SECURITY.md](../../SECURITY.md).
