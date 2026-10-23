@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -97,15 +98,8 @@ func storeTokenMacOS(token string) error {
 	// Remove any stale token first
 	_ = deleteTokenMacOS()
 
-	// Write to macOS keychain via `security` CLI
-	cmd := exec.Command("security", "add-generic-password",
-		"-s", keychainService,
-		"-a", keychainAccount,
-		"-w", token,
-		"-U", // update if exists
-	)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
+	// Write to macOS keychain via `security` CLI (value on stdin, not argv)
+	if out, err := macKeychainAdd(keychainService, keychainAccount, token); err != nil {
 		// SECURITY: Never reflect the token in error messages
 		return fmt.Errorf("failed to write to keychain: %s", sanitizeOutput(string(out)))
 	}
@@ -182,13 +176,15 @@ func deleteTokenLinux() error {
 // --- Windows (credential manager) ---
 
 func storeTokenWindows(token string) error {
-	// Stash credentials via PowerShell + Windows Credential Manager
-	script := fmt.Sprintf(`
-		$cred = New-Object PSCredential("%s", (ConvertTo-SecureString "%s" -AsPlainText -Force))
+	// Stash credentials via PowerShell + Export-Clixml (DPAPI). The token
+	// travels in an environment variable, never in the script text or argv.
+	script := `
+		New-Item -ItemType Directory -Force -Path "$env:APPDATA\tunr" | Out-Null
+		$cred = New-Object PSCredential($env:TUNR_ACCOUNT, (ConvertTo-SecureString $env:TUNR_SECRET_VALUE -AsPlainText -Force))
 		$cred | Export-Clixml -Path "$env:APPDATA\tunr\auth.xml"
-	`, keychainAccount, token)
-
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
+	`
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd.Env = append(os.Environ(), "TUNR_SECRET_VALUE="+token, "TUNR_ACCOUNT="+keychainAccount)
 	if _, err := cmd.Output(); err != nil {
 		return fmt.Errorf("failed to write to Windows credential store: %w", err)
 	}
