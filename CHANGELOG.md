@@ -3,6 +3,33 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Security
+- **relay:** a deployed app always owns its hostname; a tunnel can no longer
+  take over another user's app or hosted-agent subdomain. Host matching is
+  case-insensitive.
+- **relay:** `POST /v1/apps` no longer accepts a caller-chosen upstream.
+- **bridge:** revoking a link, disabling a resource or an agent, and revoking
+  an agent token now end live streams and the grants behind them. "Cut all
+  access" also denies pending grants and turns auto-approve off.
+- **bridge:** grant webhooks only reach public addresses and don't follow
+  redirects.
+- **cli:** the connector's Postgres proxy no longer lets agents change
+  `statement_timeout`, `client_encoding` or `standard_conforming_strings`,
+  refuses non-UTF-8 statements, checks quoted function names, and bounds
+  prepared statements per session.
+- **cli:** the portal's connect command reads the site token from a prompt
+  (`--token-stdin`); `--token` only runs setup. Keychain writes on macOS and
+  the Windows login token no longer pass secrets on a command line.
+- **cli:** `tunr access` raw-TCP ports refuse other users' processes on Linux
+  and warn elsewhere.
+- **bridge:** an org admin can't change an owner's role, and an org keeps at
+  least one owner. Portal sign-in is rate-limited per IP, and a new sign-in
+  link no longer cancels an earlier one.
+- **relay:** removed the unused `/api/user/token/rotate` route. Disabled hosted
+  agents keep their hostname guarded. Audit CSV cells are formula-safe.
+
 ## v0.8.0 — 2026-10-23
 
 tunr's headline is now **Agent Bridge**: AI vendors' agents get read-only,
