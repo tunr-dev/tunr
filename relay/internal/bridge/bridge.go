@@ -70,6 +70,9 @@ type Deps struct {
 	DB       *db.DB
 	JWT      *auth.JWTAuth
 	Deployer AgentAppDeployer // hosted agents; nil = not offered
+	// ClientIP names the caller for per-IP limits (the relay's
+	// proxy-aware resolver); nil uses the TCP peer.
+	ClientIP func(*http.Request) string
 }
 
 // Server is the bridge's HTTP surface.
@@ -82,6 +85,7 @@ type Server struct {
 	access *Access
 	notify *Notifier
 	logins *loginLimiter
+	ipOf   func(*http.Request) string
 
 	apiLimit    *limiter // per user / agent token
 	killLatency *histogram
@@ -93,7 +97,7 @@ type Server struct {
 // New builds the bridge server. With cfg.Enabled false it does nothing and
 // cannot fail, so a disabled bridge can never take the relay down.
 func New(cfg Config, deps Deps) (*Server, error) {
-	s := &Server{cfg: cfg, db: deps.DB, jwt: deps.JWT, deployer: deps.Deployer, hosted: &hostedCache{byName: map[string]db.HostedApp{}}}
+	s := &Server{cfg: cfg, db: deps.DB, jwt: deps.JWT, deployer: deps.Deployer, ipOf: deps.ClientIP, hosted: &hostedCache{byName: map[string]db.HostedApp{}}}
 	if !cfg.Enabled {
 		return s, nil
 	}

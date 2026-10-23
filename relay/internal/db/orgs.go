@@ -385,11 +385,13 @@ func (db *DB) QueryRowForTest(ctx context.Context, sql string, args ...any) pgx.
 
 // ─── Portal login (shares magic_tokens with the dashboard) ──────────────────
 
-// SavePortalMagicToken stores sha256(token) for email, replacing any older
-// link for that address — the same scheme as the dashboard
-// (landing/app/api/auth/send-magic-link), so the two never disagree.
+// SavePortalMagicToken stores sha256(token) for email — the same scheme as
+// the dashboard (landing/app/api/auth/send-magic-link). Older unexpired links
+// stay valid: anyone can request a link for any address, so a new request
+// must not cancel the one the owner is about to click. Links are single use
+// and the request rate per address is limited.
 func (db *DB) SavePortalMagicToken(ctx context.Context, email, tokenHash string, expiresAt time.Time) error {
-	_, err := db.pool.Exec(ctx, `DELETE FROM magic_tokens WHERE email = $1 OR expires_at < now()`, email)
+	_, err := db.pool.Exec(ctx, `DELETE FROM magic_tokens WHERE expires_at < now()`)
 	if err != nil {
 		return err
 	}
