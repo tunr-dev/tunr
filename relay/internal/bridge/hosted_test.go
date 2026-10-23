@@ -215,4 +215,18 @@ func TestHostedTriggersAndPrivacy(t *testing.T) {
 	if crons != 1 {
 		t.Errorf("cron fired %d times in one minute", crons)
 	}
+
+	// A disabled agent's hostname stays guarded; nothing reaches the container.
+	e.call(e.vendor, "PATCH", "/orgs/vendor-co/agents/"+e.agentID, map[string]any{"status": "disabled"}, 200, nil)
+	e.s.refreshHosted(context.Background())
+	before := len(*got)
+	if c := send("/", "", nil); c != 503 {
+		t.Errorf("request to a disabled agent: %d", c)
+	}
+	if c := send("/__tunr/hooks/new-invoice", SignWebhook(hook.Secret, time.Now(), body), body); c != 503 {
+		t.Errorf("hook to a disabled agent: %d", c)
+	}
+	if len(*got) != before {
+		t.Errorf("disabled agent received %d requests", len(*got)-before)
+	}
 }

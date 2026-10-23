@@ -519,7 +519,7 @@ func (s *Server) orgAuditExport(w http.ResponseWriter, r *http.Request) {
 		for _, e := range ev {
 			d, _ := json.Marshal(e.Detail)
 			_ = cw.Write([]string{strconv.FormatInt(e.ID, 10), e.CreatedAt.UTC().Format(time.RFC3339),
-				e.Action, e.UserEmail, csvSafe(string(d))})
+				csvSafe(e.Action), csvSafe(e.UserEmail), csvSafe(string(d))})
 		}
 		cw.Flush()
 		return

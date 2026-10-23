@@ -205,7 +205,7 @@ func (db *DB) RecordTunnelConnect(ctx context.Context, shortID, userID, subdomai
 	const q = `
 		INSERT INTO tunnels (tunnel_short_id, user_id, subdomain, local_port, status, connected_at)
 		VALUES ($1, $2::uuid, $3, $4, 'active', now())
-		ON CONFLICT (tunnel_short_id) DO NOTHING`
+		ON CONFLICT (tunnel_short_id) WHERE tunnel_short_id IS NOT NULL DO NOTHING`
 	_, err := db.pool.Exec(ctx, q, shortID, userID, subdomain, localPort)
 	return err
 }
