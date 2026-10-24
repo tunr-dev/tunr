@@ -26,11 +26,18 @@ const (
 	MsgError   = "error"
 )
 
-// ResourceDecl is a resource as announced to the relay: name and kind only.
-// There is deliberately no address field — targets never leave the site.
+// ResourceDecl is a resource as announced to the relay: name, kind and
+// optionally its schema profile. There is deliberately no address field —
+// targets never leave the site.
 type ResourceDecl struct {
 	Name string `json:"name"`
 	Kind string `json:"kind"`
+	// Profile names a built-in schema profile ("nebim-v3"); ProfileTables
+	// are the profile's tables found in the real database by
+	// `tunr connect resource verify`. Older relays ignore both.
+	Profile           string   `json:"profile,omitempty"`
+	ProfileTables     []string `json:"profile_tables,omitempty"`
+	ProfileVerifiedAt string   `json:"profile_verified_at,omitempty"` // RFC 3339
 }
 
 // HelloData is the connector's first message.

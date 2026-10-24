@@ -2,7 +2,7 @@
 
 This page is about **tunnels only** — `tunr share`, the free on-ramp. It is
 deliberately not on the front page, because tunnelling is not what tunr is for.
-tunr is mainly for [connecting AI agents to customers' on-prem data](../README.md#agent-bridge)
+tunr is mainly for [connecting AI agents to customers' on-prem data](../README.md#agent-bridge--reach-in)
 (the Agent Bridge), and also hosts apps (`tunr deploy`); the tunnel is how you
 preview something before you ship it. Nothing below compares the bridge.
 

@@ -92,15 +92,20 @@ type Resource struct {
 	Limits      json.RawMessage `json:"limits"`
 	Status      string          `json:"status"`
 	CreatedAt   time.Time       `json:"created_at"`
+	// Profile is set by the customer's connector (see ResourceDecl).
+	Profile           string     `json:"profile,omitempty"`
+	ProfileTables     []string   `json:"profile_tables,omitempty"`
+	ProfileVerifiedAt *time.Time `json:"profile_verified_at,omitempty"`
 }
 
-const resourceCols = `id, site_id, org_id, name, kind, COALESCE(description, ''), auto_approve, limits, status, created_at`
+const resourceCols = `id, site_id, org_id, name, kind, COALESCE(description, ''), auto_approve, limits, status, created_at,
+	COALESCE(profile, ''), profile_tables, profile_verified_at`
 
 func scanResource(row pgx.Row) (*Resource, error) {
 	var r Resource
 	var auto, lim []byte
 	if err := row.Scan(&r.ID, &r.SiteID, &r.OrgID, &r.Name, &r.Kind, &r.Description,
-		&auto, &lim, &r.Status, &r.CreatedAt); err != nil {
+		&auto, &lim, &r.Status, &r.CreatedAt, &r.Profile, &r.ProfileTables, &r.ProfileVerifiedAt); err != nil {
 		return nil, mapErr(err)
 	}
 	if auto != nil {
@@ -157,21 +162,25 @@ func (db *DB) UpdateResource(ctx context.Context, orgID, resourceID string, p Re
 		resourceID, orgID, p.Description, rawOrNil(p.AutoApprove), rawOrNil(p.Limits), p.Status))
 }
 
-// CatalogEntry is a resource as a linked vendor sees it: name, kind and
-// description — never site details or limits configuration.
+// CatalogEntry is a resource as a linked vendor sees it: name, kind,
+// description and schema profile — never site details or limits configuration.
 type CatalogEntry struct {
-	Address     string `json:"address"` // "<customer-slug>/<resource-name>"
-	ResourceID  string `json:"resource_id"`
-	CustomerOrg string `json:"customer_org"`
-	Kind        string `json:"kind"`
-	Description string `json:"description"`
+	Address           string     `json:"address"` // "<customer-slug>/<resource-name>"
+	ResourceID        string     `json:"resource_id"`
+	CustomerOrg       string     `json:"customer_org"`
+	Kind              string     `json:"kind"`
+	Description       string     `json:"description"`
+	Profile           string     `json:"profile,omitempty"`
+	ProfileTables     []string   `json:"profile_tables,omitempty"`
+	ProfileVerifiedAt *time.Time `json:"profile_verified_at,omitempty"`
 }
 
 // Catalog lists active resources of every customer that has an active link
 // to vendorOrgID.
 func (db *DB) Catalog(ctx context.Context, vendorOrgID string) ([]CatalogEntry, error) {
 	rows, err := db.pool.Query(ctx, `
-		SELECT c.slug || '/' || r.name, r.id, c.slug, r.kind, COALESCE(r.description, '')
+		SELECT c.slug || '/' || r.name, r.id, c.slug, r.kind, COALESCE(r.description, ''),
+		       COALESCE(r.profile, ''), r.profile_tables, r.profile_verified_at
 		FROM links l
 		JOIN orgs c      ON c.id = l.customer_org_id
 		JOIN resources r ON r.org_id = c.id AND r.status = 'active'
@@ -184,7 +193,8 @@ func (db *DB) Catalog(ctx context.Context, vendorOrgID string) ([]CatalogEntry, 
 	var out []CatalogEntry
 	for rows.Next() {
 		var e CatalogEntry
-		if err := rows.Scan(&e.Address, &e.ResourceID, &e.CustomerOrg, &e.Kind, &e.Description); err != nil {
+		if err := rows.Scan(&e.Address, &e.ResourceID, &e.CustomerOrg, &e.Kind, &e.Description,
+			&e.Profile, &e.ProfileTables, &e.ProfileVerifiedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -292,6 +302,18 @@ func (db *DB) RevokeAgentToken(ctx context.Context, orgID, agentID, tokenID stri
 		tokenID, agentID, orgID))
 }
 
+// AgentTokenIssuer returns who issued an agent token and whether that user
+// is still a member of the agent's org. issuer is "" for tokens issued by the
+// system (hosted agents' bootstrap tokens).
+func (db *DB) AgentTokenIssuer(ctx context.Context, orgID, tokenID string) (issuer string, member bool, err error) {
+	err = db.pool.QueryRow(ctx, `
+		SELECT COALESCE(t.created_by::text, ''),
+		       EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = t.created_by)
+		FROM agent_tokens t JOIN agents a ON a.id = t.agent_id
+		WHERE t.id = $1 AND a.org_id = $2`, tokenID, orgID).Scan(&issuer, &member)
+	return issuer, member, mapErr(err)
+}
+
 // AgentTokenUsable reports whether a token (by jti) is unrevoked, unexpired,
 // and belongs to an active agent of orgID. Used on every agent request; the
 // JWT signature alone is not enough because tokens can be revoked.
@@ -323,17 +345,29 @@ type Grant struct {
 	ExpiresAt     *time.Time      `json:"expires_at,omitempty"`
 	Limits        json.RawMessage `json:"limits"`
 	CreatedAt     time.Time       `json:"created_at"`
+	// RequestedBy is the vendor-side person the grant acts for: the human who
+	// requested it, or who issued the agent token that did. Empty for grants
+	// from before 010 and for hosted agents' bootstrap tokens.
+	RequestedBy string `json:"requested_by,omitempty"`
 }
 
 const grantCols = `g.id, g.agent_id, g.resource_id, g.vendor_org_id, g.customer_org_id, g.mode, g.status,
-	COALESCE(g.reason, ''), g.requested_ttl_secs, g.approved_at, g.expires_at, g.limits, g.created_at`
+	COALESCE(g.reason, ''), g.requested_ttl_secs, g.approved_at, g.expires_at, g.limits, g.created_at,
+	COALESCE(g.requested_by::text, '')`
+
+// onBehalfStillValid: a grant made on someone's behalf is only usable while
+// that person is still a member of the vendor org — an agent is never more
+// powerful than the person it acts for. A deleted user leaves requested_by
+// NULL with requested_by_set still true.
+const onBehalfStillValid = `(NOT g.requested_by_set OR EXISTS (
+	SELECT 1 FROM org_members m WHERE m.org_id = g.vendor_org_id AND m.user_id = g.requested_by))`
 
 func scanGrant(row pgx.Row) (*Grant, error) {
 	var g Grant
 	var ttl int
 	var lim []byte
 	if err := row.Scan(&g.ID, &g.AgentID, &g.ResourceID, &g.VendorOrgID, &g.CustomerOrgID,
-		&g.Mode, &g.Status, &g.Reason, &ttl, &g.ApprovedAt, &g.ExpiresAt, &lim, &g.CreatedAt); err != nil {
+		&g.Mode, &g.Status, &g.Reason, &ttl, &g.ApprovedAt, &g.ExpiresAt, &lim, &g.CreatedAt, &g.RequestedBy); err != nil {
 		return nil, mapErr(err)
 	}
 	g.RequestedTTL = time.Duration(ttl) * time.Second
@@ -418,10 +452,14 @@ func rawOrNil(r json.RawMessage) any {
 
 // ─── Connector session state (P2) ───────────────────────────────────────────
 
-// ResourceDecl is a resource a connector announces: name and kind only.
+// ResourceDecl is a resource a connector announces: name, kind and the
+// optional schema profile.
 type ResourceDecl struct {
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	Name              string
+	Kind              string
+	Profile           string
+	ProfileTables     []string
+	ProfileVerifiedAt *time.Time
 }
 
 // ErrResourceOwnedByOtherSite means a connector announced a resource name
@@ -449,13 +487,14 @@ func (db *DB) SyncSiteResources(ctx context.Context, orgID, siteID string, decls
 			return nil, fmt.Errorf("%w: %s", ErrResourceOwnedByOtherSite, d.Name)
 		}
 		r, err := scanResource(tx.QueryRow(ctx, `
-			INSERT INTO resources (id, site_id, org_id, name, kind)
-			SELECT $1, s.id, s.org_id, $4, $5 FROM sites s WHERE s.id = $2 AND s.org_id = $3
+			INSERT INTO resources (id, site_id, org_id, name, kind, profile, profile_tables, profile_verified_at)
+			SELECT $1, s.id, s.org_id, $4, $5, NULLIF($6, ''), $7, $8 FROM sites s WHERE s.id = $2 AND s.org_id = $3
 			ON CONFLICT (org_id, name) DO UPDATE
-			  SET kind = EXCLUDED.kind,
+			  SET kind = EXCLUDED.kind, profile = EXCLUDED.profile, profile_tables = EXCLUDED.profile_tables,
+			      profile_verified_at = EXCLUDED.profile_verified_at,
 			      status = CASE WHEN resources.status = 'disabled' THEN 'disabled' ELSE 'active' END
 			  WHERE resources.site_id = EXCLUDED.site_id
-			RETURNING `+resourceCols, newID("res_"), siteID, orgID, d.Name, d.Kind))
+			RETURNING `+resourceCols, newID("res_"), siteID, orgID, d.Name, d.Kind, d.Profile, d.ProfileTables, d.ProfileVerifiedAt))
 		if err != nil {
 			return nil, err
 		}
@@ -495,7 +534,7 @@ func (db *DB) SetSiteOffline(ctx context.Context, siteID string) error {
 func (db *DB) ResolveVendorResource(ctx context.Context, vendorOrgID, customerSlug, name string) (*Resource, error) {
 	return scanResource(db.pool.QueryRow(ctx, `
 		SELECT r.id, r.site_id, r.org_id, r.name, r.kind, COALESCE(r.description, ''), r.auto_approve,
-		       r.limits, r.status, r.created_at
+		       r.limits, r.status, r.created_at, COALESCE(r.profile, ''), r.profile_tables, r.profile_verified_at
 		FROM resources r
 		JOIN orgs c  ON c.id = r.org_id AND c.slug = $2
 		JOIN links l ON l.customer_org_id = c.id AND l.vendor_org_id = $1 AND l.status = 'active'
@@ -510,6 +549,7 @@ func (db *DB) FindActiveGrant(ctx context.Context, vendorOrgID, agentID, resourc
 		WHERE g.vendor_org_id = $1 AND g.agent_id = $2 AND g.resource_id = $3
 		  AND g.status = 'approved' AND g.expires_at > now()
 		  AND ($4 = '' OR g.id = $4)
+		  AND `+onBehalfStillValid+`
 		ORDER BY g.expires_at DESC LIMIT 1`, vendorOrgID, agentID, resourceID, grantID))
 }
 

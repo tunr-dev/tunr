@@ -108,6 +108,10 @@ type CatalogItem struct {
 	GrantStatus    string     `json:"grant_status"`
 	GrantMode      string     `json:"grant_mode"`
 	GrantExpiresAt *time.Time `json:"grant_expires_at"`
+	// Schema profile, as announced by the customer's connector.
+	Profile           string     `json:"profile"`
+	ProfileTables     []string   `json:"profile_tables"`
+	ProfileVerifiedAt *time.Time `json:"profile_verified_at"`
 }
 
 // GrantRequest is POST /agent/grants (and /orgs/{org}/grants with AgentID).

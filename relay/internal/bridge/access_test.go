@@ -91,7 +91,7 @@ func (e *accessEnv) connector(token string) (*websocket.Conn, chan Message) {
 	if err != nil {
 		e.t.Fatalf("connector dial: %v", err)
 	}
-	_ = c.WriteJSON(msg(MsgHello, HelloData{ConnectorVersion: "test", Resources: []ResourceDecl{{"echo", "tcp"}}}))
+	_ = c.WriteJSON(msg(MsgHello, HelloData{ConnectorVersion: "test", Resources: []ResourceDecl{{Name: "echo", Kind: "tcp"}}}))
 	var w Message
 	if err := c.ReadJSON(&w); err != nil || w.Type != MsgWelcome {
 		e.t.Fatalf("welcome: %v %s", err, w.Type)
@@ -573,7 +573,7 @@ func TestAccessE2ENegotiation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	_ = c.WriteJSON(msg(MsgHello, HelloData{Resources: []ResourceDecl{{"echo", "tcp"}}, TLSCertSHA256: fp}))
+	_ = c.WriteJSON(msg(MsgHello, HelloData{Resources: []ResourceDecl{{Name: "echo", Kind: "tcp"}}, TLSCertSHA256: fp}))
 	var w Message
 	_ = c.ReadJSON(&w)
 	var wd WelcomeData

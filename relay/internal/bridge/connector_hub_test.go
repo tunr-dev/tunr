@@ -131,7 +131,7 @@ func TestConnectAuthBeforeUpgrade(t *testing.T) {
 
 func TestConnectHelloSyncsResources(t *testing.T) {
 	e := newHubEnv(t)
-	c, w := e.connect(ResourceDecl{"erp-db", "postgres"}, ResourceDecl{"nas", "tcp"})
+	c, w := e.connect(ResourceDecl{Name: "erp-db", Kind: "postgres"}, ResourceDecl{Name: "nas", Kind: "tcp"})
 	if w.SiteID != e.site.ID || w.RelayKey != "ed25519:test-key" || len(w.Resources) != 2 {
 		t.Fatalf("welcome = %+v", w)
 	}
@@ -142,7 +142,7 @@ func TestConnectHelloSyncsResources(t *testing.T) {
 	eventually(t, "offline after disconnect", func() bool { return !e.hub.Online(e.site.ID) && e.siteStatus() == "offline" })
 
 	// Reconnect announcing only erp-db: nas goes offline, erp-db keeps its ID.
-	c2, w2 := e.connect(ResourceDecl{"erp-db", "postgres"})
+	c2, w2 := e.connect(ResourceDecl{Name: "erp-db", Kind: "postgres"})
 	defer c2.Close()
 	if len(w2.Resources) != 1 || w2.Resources[0].ID != w.Resources[0].ID {
 		t.Fatalf("welcome after reconnect = %+v (first %+v)", w2, w)
@@ -160,9 +160,9 @@ func TestConnectHelloSyncsResources(t *testing.T) {
 func TestConnectRejectsBadHello(t *testing.T) {
 	e := newHubEnv(t)
 	for name, hello := range map[string]HelloData{
-		"bad name":  {Resources: []ResourceDecl{{"../etc", "tcp"}}},
-		"bad kind":  {Resources: []ResourceDecl{{"erp-db", "ssh"}}},
-		"duplicate": {Resources: []ResourceDecl{{"erp-db", "tcp"}, {"erp-db", "tcp"}}},
+		"bad name":  {Resources: []ResourceDecl{{Name: "../etc", Kind: "tcp"}}},
+		"bad kind":  {Resources: []ResourceDecl{{Name: "erp-db", Kind: "ssh"}}},
+		"duplicate": {Resources: []ResourceDecl{{Name: "erp-db", Kind: "tcp"}, {Name: "erp-db", Kind: "tcp"}}},
 		"long ver":  {ConnectorVersion: strings.Repeat("x", 100)},
 	} {
 		c, _, err := e.dial(e.token, nil)
@@ -183,7 +183,7 @@ func TestConnectRejectsBadHello(t *testing.T) {
 
 func TestConnectResourceConflictAcrossSites(t *testing.T) {
 	e := newHubEnv(t)
-	c, _ := e.connect(ResourceDecl{"erp-db", "postgres"})
+	c, _ := e.connect(ResourceDecl{Name: "erp-db", Kind: "postgres"})
 	defer c.Close()
 
 	tok2, hash2, _ := auth.GenerateSiteToken()
@@ -195,7 +195,7 @@ func TestConnectResourceConflictAcrossSites(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c2.Close()
-	_ = c2.WriteJSON(msg(MsgHello, HelloData{Resources: []ResourceDecl{{"erp-db", "tcp"}}}))
+	_ = c2.WriteJSON(msg(MsgHello, HelloData{Resources: []ResourceDecl{{Name: "erp-db", Kind: "tcp"}}}))
 	if m := e.read(c2); m.Type != MsgError || !strings.Contains(string(m.Data), "resource_conflict") {
 		t.Fatalf("got %s %s, want resource_conflict", m.Type, m.Data)
 	}

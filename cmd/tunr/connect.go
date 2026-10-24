@@ -24,6 +24,7 @@ import (
 
 	"github.com/tunr-dev/tunr/internal/bridge"
 	"github.com/tunr-dev/tunr/internal/bridge/connector"
+	"github.com/tunr-dev/tunr/internal/bridge/profile"
 	"github.com/tunr-dev/tunr/internal/logger"
 	"github.com/tunr-dev/tunr/internal/term"
 	"github.com/tunr-dev/tunr/internal/tunnel"
@@ -33,6 +34,7 @@ import (
 //
 //	tunr connect --relay URL --site NAME --relay-key KEY --token-stdin   # first run (from the portal)
 //	tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo --user tunr_ro
+//	tunr connect resource add nebim --kind mssql --target 10.0.0.7:1433 --database NEBIM_V3
 //	tunr connect                                                          # run (foreground)
 //	sudo tunr connect install                                             # run as a service
 //	tunr connect kill | resume                                            # local emergency stop
@@ -107,7 +109,7 @@ service with 'tunr connect install'.`,
 	cmd.Flags().StringVar(&healthAddr, "health-addr", "", "Serve GET /healthz here for monitoring (e.g. 127.0.0.1:9095); 200 when connected, 503 otherwise")
 
 	cmd.AddCommand(newConnectResourceCmd(), newConnectStatusCmd(), newConnectKillCmd(), newConnectResumeCmd(),
-		newConnectInstallCmd(), newConnectUninstallCmd(), newConnectPGRoleCmd())
+		newConnectInstallCmd(), newConnectUninstallCmd(), newConnectPGRoleCmd(), newConnectMSSQLRoleCmd())
 	return cmd
 }
 
@@ -148,7 +150,7 @@ func connectSetup(path, site, token, relayKey, secretStore string) error {
 	}
 	term.Green.Println(fmt.Sprintf("  ✓ Site %s configured (%s)", cfg.Site, path))
 	if len(cfg.Resources) == 0 {
-		term.Dim.Println("  Next: tunr connect resource add <name> --kind postgres|tcp --target host:port")
+		term.Dim.Println("  Next: tunr connect resource add <name> --kind mssql|postgres|tcp --target host:port")
 	}
 	return nil
 }
@@ -214,12 +216,15 @@ func storeName(cfg *connector.Config) string {
 func newConnectResourceCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "resource", Short: "Manage the resources this site exposes"}
 
-	var kind, target, database, user string
-	var passwordStdin bool
+	var kind, target, database, user, encrypt, profName string
+	var masks []string
+	var passwordStdin, trustCert bool
 	add := &cobra.Command{
 		Use:   "add NAME",
 		Short: "Add or update a resource",
 		Example: `  tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo --user tunr_ro
+  tunr connect resource add nebim --kind mssql --target 10.0.0.7:1433 --database NEBIM_V3 --profile nebim-v3
+  tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo --mask cari.vergi_no=partial:4
   tunr connect resource add nas --kind tcp --target 10.0.0.9:445`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -228,10 +233,18 @@ func newConnectResourceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			r := connector.Resource{Name: args[0], Kind: kind, Target: target, Database: database}
+			r := connector.Resource{Name: args[0], Kind: kind, Target: target, Database: database,
+				Encrypt: encrypt, TrustServerCertificate: trustCert, Profile: profName}
+			for _, m := range masks {
+				rule, err := connector.ParseMaskRule(m)
+				if err != nil {
+					return err
+				}
+				r.Masks = append(r.Masks, rule)
+			}
 			if user != "" {
-				if kind != "postgres" {
-					return errors.New("--user is only for postgres resources")
+				if !r.IsDatabase() {
+					return errors.New("--user is only for postgres and mssql resources")
 				}
 				pw, err := readPassword(passwordStdin, fmt.Sprintf("  Password for %s: ", user))
 				if err != nil {
@@ -244,6 +257,9 @@ func newConnectResourceCmd() *cobra.Command {
 				}
 			} else if old, ok := cfg.Resource(r.Name); ok {
 				r.Credential = old.Credential
+			}
+			if old, ok := cfg.Resource(r.Name); ok && old.Profile == r.Profile {
+				r.ProfileTables, r.ProfileVerifiedAt = old.ProfileTables, old.ProfileVerifiedAt
 			}
 			replaced := false
 			for i := range cfg.Resources {
@@ -259,13 +275,28 @@ func newConnectResourceCmd() *cobra.Command {
 			}
 			term.Green.Println(fmt.Sprintf("  ✓ %s %s (%s → %s)", map[bool]string{true: "Updated", false: "Added"}[replaced], r.Name, r.Kind, r.Target))
 			term.Dim.Println("  The address stays on this machine; the relay only learns the name and kind.")
+			if len(r.Masks) > 0 {
+				term.Dim.Println(fmt.Sprintf("  %d masked column(s): values are hidden in results; WHERE can still test guesses —", len(r.Masks)))
+				term.Dim.Println("  for values an agent must never learn, leave the column out of the role (pg-role --tables).")
+			}
+			if r.Profile != "" && r.ProfileVerifiedAt == "" {
+				term.Dim.Println("  Profile " + r.Profile + " is shown to vendors as unverified until: tunr connect resource verify " + r.Name)
+			}
+			if r.IsDatabase() && r.Credential == "" {
+				term.Yellow.Println(fmt.Sprintf("  ! No credential yet: create a read-only login with tunr connect %s-role --resource %s",
+					map[string]string{"postgres": "pg", "mssql": "mssql"}[r.Kind], r.Name))
+			}
 			term.Dim.Println("  Restart the connector to announce it.")
 			return nil
 		},
 	}
-	add.Flags().StringVar(&kind, "kind", "", "postgres | tcp (required)")
+	add.Flags().StringVar(&kind, "kind", "", "postgres | mssql | tcp (required)")
 	add.Flags().StringVar(&target, "target", "", "host:port inside your network (required)")
-	add.Flags().StringVar(&database, "database", "", "Database name (postgres)")
+	add.Flags().StringVar(&database, "database", "", "Database name (postgres, mssql)")
+	add.Flags().StringVar(&encrypt, "encrypt", "", "mssql: disable | false | true | strict (default false: only the login is encrypted)")
+	add.Flags().BoolVar(&trustCert, "trust-server-cert", false, "mssql: accept the server's self-signed certificate when --encrypt=true")
+	add.Flags().StringArrayVar(&masks, "mask", nil, "postgres: mask a column in results: [[schema.]table.]column[=redact|partial:N|hash|null] (repeatable)")
+	add.Flags().StringVar(&profName, "profile", "", "Schema profile shown to vendors' agents: nebim-v3 | logo-tiger | netsis (tunr profile list)")
 	add.Flags().StringVar(&user, "user", "", "Read-only database user; the password is prompted and kept in the secret store")
 	add.Flags().BoolVar(&passwordStdin, "password-stdin", false, "Read the password from stdin")
 	_ = add.MarkFlagRequired("kind")
@@ -313,15 +344,123 @@ func newConnectResourceCmd() *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tKIND\tTARGET\tDATABASE\tCREDENTIAL")
+			fmt.Fprintln(tw, "NAME\tKIND\tTARGET\tDATABASE\tCREDENTIAL\tPROFILE")
 			for _, r := range cfg.Resources {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Name, r.Kind, r.Target, r.Database,
-					map[bool]string{true: "stored", false: "-"}[r.Credential != ""])
+				prof := "-"
+				if r.Profile != "" {
+					prof = r.Profile + " (unverified)"
+					if r.ProfileVerifiedAt != "" {
+						prof = fmt.Sprintf("%s (%d tables, verified %s)", r.Profile, len(r.ProfileTables), r.ProfileVerifiedAt)
+					}
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, r.Kind, r.Target, r.Database,
+					map[bool]string{true: "stored", false: "-"}[r.Credential != ""], prof)
 			}
 			return tw.Flush()
 		},
 	}
-	cmd.AddCommand(add, remove, list)
+	cmd.AddCommand(add, remove, list, newConnectVerifyCmd())
+	return cmd
+}
+
+func newConnectVerifyCmd() *cobra.Command {
+	var profName string
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "verify NAME",
+		Short: "Check a database resource's login is read-only, and match its schema profile",
+		Long: `Log in to a postgres or mssql resource with its stored credential — exactly as
+the connector will — and report:
+
+  1. whether the login could write (it must not: the database role is the real
+     read-only guarantee; fix it with pg-role / mssql-role), and
+  2. which tables of the resource's schema profile exist in this database.
+
+The matched table NAMES (no data) are saved to the config and, after a
+connector restart, shown to linked vendors' agents as a verified profile.
+Use --dry-run to see the result without saving.`,
+		Example: `  tunr connect resource verify nebim
+  tunr connect resource verify erp --profile logo-tiger
+  tunr connect resource verify erp --dry-run`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := connectCfgPath()
+			cfg, err := connector.Load(path)
+			if err != nil {
+				return err
+			}
+			r, ok := cfg.Resource(args[0])
+			if !ok {
+				return fmt.Errorf("no resource %q", args[0])
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+			defer cancel()
+			chk, err := connector.CheckDatabase(ctx, r, cfg.Secrets(path))
+			if err != nil {
+				return err
+			}
+			fmt.Printf("  Login     %s on %s (%s)\n", chk.Login, r.Database, r.Kind)
+			if chk.ReadOnly() {
+				term.Green.Println("  ✓ read-only: no write, execute or schema-change rights found")
+			} else {
+				term.Red.Println("  ✗ NOT read-only:")
+				for _, p := range chk.Problems {
+					term.Red.Println("    - " + p)
+				}
+				term.Yellow.Println(fmt.Sprintf("  Fix: create a dedicated login with tunr connect %s-role --resource %s",
+					map[string]string{"postgres": "pg", "mssql": "mssql"}[r.Kind], r.Name))
+			}
+			fmt.Printf("  Visible   %d tables and views\n", len(chk.Tables))
+
+			name := profName
+			if name == "" {
+				name = r.Profile
+			}
+			if name == "" {
+				for _, p := range profile.All() {
+					if p.Kind == r.Kind && p.Detected(chk.Tables) {
+						term.Dim.Println("  Looks like " + p.Title + " — add it with --profile " + p.Name)
+					}
+				}
+				return nil
+			}
+			p, ok := profile.Get(name)
+			if !ok {
+				return fmt.Errorf("unknown profile %q (tunr profile list)", name)
+			}
+			if p.Kind != r.Kind {
+				return fmt.Errorf("profile %s is for %s resources, %s is %s", p.Name, p.Kind, r.Name, r.Kind)
+			}
+			match := p.Match(chk.Tables)
+			found := connector.ProfileTablesFor(match)
+			fmt.Printf("  Profile   %s: %d of %d profile tables found\n", p.Title, len(match), len(p.Tables))
+			for _, t := range p.Tables {
+				if names := match[t.Name]; len(names) > 0 {
+					fmt.Printf("    ✓ %-28s %s\n", t.Name, strings.Join(names, ", "))
+				} else {
+					term.Dim.Println(fmt.Sprintf("    · %-28s not found", t.Name))
+				}
+			}
+			if !p.Detected(chk.Tables) {
+				term.Yellow.Println("  ! This database does not look like " + p.Title + "; check --profile.")
+			}
+			if len(found) > 500 {
+				return fmt.Errorf("%d matching tables; the relay accepts 500 — narrow the login's tables (%w)", len(found), connector.ErrTooManyTables)
+			}
+			if dryRun {
+				term.Dim.Println("  Dry run: nothing saved.")
+				return nil
+			}
+			r.Profile, r.ProfileTables, r.ProfileVerifiedAt = p.Name, found, time.Now().UTC().Format(time.RFC3339)
+			if err := cfg.Save(path); err != nil {
+				return err
+			}
+			term.Green.Println(fmt.Sprintf("  ✓ Saved: %d table names (no data). Restart the connector to show vendors the verified profile.", len(found)))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&profName, "profile", "", "Profile to check against (default: the resource's)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Report only; don't save the matched tables")
 	return cmd
 }
 
@@ -561,6 +700,83 @@ credential, so the password never needs to be copied by hand.`,
 	cmd.Flags().StringVar(&schemas, "schemas", "public", "Comma-separated schemas")
 	cmd.Flags().StringVar(&tables, "tables", "", "Comma-separated tables (schema.table or table); default: all tables in the schemas")
 	cmd.Flags().StringVar(&resource, "resource", "", "Store the credential for this postgres resource")
+	_ = cmd.MarkFlagRequired("database")
+	return cmd
+}
+
+// ── mssql-role ───────────────────────────────────────────────────────────────
+
+func newConnectMSSQLRoleCmd() *cobra.Command {
+	var login, database, schema, tables, resource string
+	var masks []string
+	cmd := &cobra.Command{
+		Use:   "mssql-role",
+		Short: "Print T-SQL that creates a read-only SQL Server login for the connector",
+		Long: `Print the T-SQL (for sqlcmd or SSMS) that creates a login which can only read
+the listed tables — or every table, through db_datareader — and is DENIED
+INSERT, UPDATE, DELETE, EXECUTE and ALTER on the database. Give it to your DBA.
+A fresh password is generated each time.
+
+With --resource, the login and password are also stored as that mssql
+resource's credential, so the password never needs to be copied by hand.
+
+--mask adds SQL Server Dynamic Data Masking to a column. Masking is a property
+of the column: every login without UNMASK sees the masked value, so check which
+login the ERP application itself uses first.`,
+		Example: `  tunr connect mssql-role --database NEBIM_V3 --tables cdItem,trStock,cdCurrAcc --resource nebim > mssql-role.sql
+  tunr connect mssql-role --database TIGER --mask dbo.LG_001_CLCARD.TAXNR='partial(0,"*******",4)'
+  sqlcmd -S 10.0.0.7 -U sa -i mssql-role.sql`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pw, err := connector.GenerateMSSQLPassword()
+			if err != nil {
+				return err
+			}
+			spec := connector.MSSQLRoleSpec{Login: login, Password: pw, Database: database, Schema: schema, Tables: splitList(tables)}
+			for _, m := range masks {
+				mm, err := connector.ParseMSSQLMask(m)
+				if err != nil {
+					return err
+				}
+				spec.Masks = append(spec.Masks, mm)
+			}
+			sql, err := spec.SQL()
+			if err != nil {
+				return err
+			}
+			if resource != "" {
+				path := connectCfgPath()
+				cfg, err := connector.Load(path)
+				if err != nil {
+					return err
+				}
+				r, ok := cfg.Resource(resource)
+				if !ok || r.Kind != "mssql" {
+					return fmt.Errorf("no mssql resource %q (add it first)", resource)
+				}
+				cred, _ := json.Marshal(map[string]string{"user": login, "password": pw})
+				r.Credential = "cred-" + r.Name
+				if err := cfg.Secrets(path).Set(r.Credential, string(cred)); err != nil {
+					return err
+				}
+				if err := cfg.Save(path); err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stderr, "  ✓ credential for %s stored in the %s secret store\n", resource, storeName(cfg))
+			}
+			if len(spec.Masks) > 0 {
+				fmt.Fprintln(os.Stderr, "  ! The masking section changes the columns for every login without UNMASK — read its comment before running it.")
+			}
+			fmt.Print(sql)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&login, "login", "tunr_agent_ro", "Login and database user name")
+	cmd.Flags().StringVar(&database, "database", "", "Database (required)")
+	cmd.Flags().StringVar(&schema, "schema", "dbo", "Default schema for unqualified table names")
+	cmd.Flags().StringVar(&tables, "tables", "", "Comma-separated tables (schema.table or table); default: every table (db_datareader)")
+	cmd.Flags().StringArrayVar(&masks, "mask", nil, `Mask a column: schema.table.column[=default()|email()|partial(0,"XXX",4)|random(1,9)] (repeatable)`)
+	cmd.Flags().StringVar(&resource, "resource", "", "Store the credential for this mssql resource")
 	_ = cmd.MarkFlagRequired("database")
 	return cmd
 }

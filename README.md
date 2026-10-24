@@ -10,8 +10,8 @@
 
 <br/><br/>
 
-**Connect AI agents to your customers' on-prem data.**
-Read-only, time-boxed, approved by the customer, and on the record — through one outbound-only connector.
+**The network layer for AI agents.**
+Reach your customers' on-prem data, show what you build, keep it running — through one relay that your machines only ever dial out to.
 
 [![Release](https://img.shields.io/github/v/release/tunr-dev/tunr?color=7c3aed)](https://github.com/tunr-dev/tunr/releases)
 [![CLI: Apache 2.0](https://img.shields.io/badge/CLI-Apache--2.0-7c3aed.svg)](LICENSE)
@@ -25,22 +25,40 @@ Read-only, time-boxed, approved by the customer, and on the record — through o
 </div>
 
 ```bash
+# The vendor sends one link:
+$ tunr invite create --org finbot --customer "Acme"
+https://app.tunr.sh/connect/tunr_inv_…               # Acme's IT signs in, names a site, gets the install command
+
 # Customer IT, once — inside their network, outbound HTTPS only:
-$ tunr connect --relay https://bridge.tunr.sh --site istanbul-office --relay-key ed25519:… --token-stdin --setup-only   # paste the site token
-$ tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo
-$ tunr connect pg-role --database logo --tables invoices,stock --resource erp-db > pg-role.sql   # for the DBA
+$ tunr connect resource add erp --kind mssql --target 10.0.0.7:1433 --database TIGER --profile logo-tiger
+$ tunr connect mssql-role --database TIGER --resource erp > mssql-role.sql   # SELECT-only login, for the DBA
+$ tunr connect resource verify erp                   # login can't write? which Logo tables exist?
 
 # The vendor's agent — anywhere:
-$ tunr access request acme/erp-db --ttl 2h --reason "Reconcile October invoices"
-  pending  grt_…  acme/erp-db (ro, 2h0m0s)            # the customer approves in the portal
-$ tunr access acme/erp-db --port 15432
-postgresql://agent:…@127.0.0.1:15432/db?sslmode=disable
-$ psql "$DSN" -c "update invoices set amount = 0"
-ERROR:  tunr bridge: UPDATE is not allowed on a read-only bridge
+$ tunr access request acme/erp --ttl 2h --reason "Reconcile October invoices"
+  pending  grt_…  acme/erp (ro, 2h0m0s)               # a person at Acme approves
+$ tunr access acme/erp --port 15433
+TUNR_QUERY_URL=http://127.0.0.1:15433/query           # the connector runs each statement read-only
+$ curl -s $TUNR_QUERY_URL -H "Authorization: Bearer $TUNR_QUERY_TOKEN" -d '{"sql":"DELETE FROM LG_001_CLCARD"}'
+{"error":{"code":"blocked","message":"tunr bridge: DELETE is not allowed on a read-only bridge. …"}}
 ```
 
-Or let the agent do it: `tunr_list_resources`, `tunr_request_access`,
-`tunr_open_access` are MCP tools.
+Or let the agent do it over MCP: `tunr_describe_resource` (what the ERP's
+tables mean), `tunr_request_access`, `tunr_query` (rows as JSON).
+
+### One layer, three directions
+
+| | Command | What it connects |
+|---|---|---|
+| **Reach in** — [Agent Bridge](#agent-bridge--reach-in) | `tunr connect` · `tunr access` | Your agent → a system inside a customer's network (an ERP on SQL Server, a Postgres ledger, a file server). Read-only, approved by the customer, on their record. |
+| **Show out** — [tunnels](#tunnels--show-out) | `tunr share` | Something on your laptop → a public HTTPS link, for the customer to try before it ships. Free. |
+| **Stay up** — [deploy & host](#deploy--host--stay-up) | `tunr deploy` · `tunr agent deploy` | The app your agent built, or the agent itself → running on tunr, asleep when idle. |
+
+The same rules hold in every direction: your machines and your customer's only
+open **outbound** connections to the relay, there is **one CLI** and one MCP
+server (16 tools) for all of it, and the relay is **self-hostable**. Agent
+Bridge is the part that carries the most guarantees — grants, read-only
+databases, audit — because it touches someone else's data.
 
 ---
 
@@ -60,9 +78,11 @@ end-to-end encrypted to the customer's connector; every query lands in the
 customer's audit log; one click cuts everything. Once a customer has the
 connector for one vendor, the next vendor is a link and an approval away.
 
-tunr also hosts the agents themselves (private, woken by cron or signed
-webhooks, with their identity issued automatically), still deploys the small
-apps agents build, and still has the free 3-second tunnel it started as.
+The bridge is one direction of a network layer an agent needs anyway. The same
+relay gives you a public link for what you're building (the free 3-second
+tunnel tunr started as), hosts the apps your agent builds from that data, and
+can host the agent itself — private, woken by cron or signed webhooks, with its
+identity issued automatically.
 
 ---
 
@@ -94,7 +114,7 @@ npm install @tunr/cli     # Node.js
 
 ---
 
-## Agent Bridge
+## Agent Bridge — reach in
 
 ```
  vendor's agent ──► tunr access ──(TLS 1.3, pinned)──────────────► connector ──► customer's database
@@ -105,8 +125,13 @@ npm install @tunr/cli     # Node.js
 |---|---|
 | **Connector** | `tunr connect` runs inside the customer's network as a service, dials out only, and serves named resources. Their addresses never leave the machine. |
 | **Grants** | Agent × resource × mode × duration, requested with a reason, approved by the customer (read-write needs two different approvers). They expire on their own. |
-| **Read-only databases** | A `SELECT`-only role, read-only sessions and a statement classifier; writes fail with SQLSTATE 42501. Row, byte and rate limits per grant. |
-| **No credentials for agents** | The connector logs in itself; the agent's DSN only unlocks its own local port. |
+| **Read-only databases** | PostgreSQL and SQL Server. A `SELECT`-only login (`pg-role` / `mssql-role`), read-only sessions or always-rolled-back transactions, and a statement classifier; writes are refused. `resource verify` tells the customer if the login could write. Row, byte and rate limits per grant. |
+| **SQL Server ERPs** | `mssql` resources run in query mode: the connector executes each statement and returns rows as JSON (`tunr_query`, or `POST /query` on `tunr access`'s port). Built for Nebim, Logo and Netsis, which mostly run on SQL Server. |
+| **Schema profiles** | Nebim V3, Logo Tiger/Go and Netsis: tables, column meanings, traps and example queries for the agent (`tunr_describe_resource`, `tunr profile show`), checked against the customer's real database by `resource verify`. |
+| **Masking** | Hide columns in results — SQL Server's Dynamic Data Masking via `mssql-role --mask`, or the connector's masking for Postgres (`--mask cari.vergi_no=partial:4`), which follows aliases and refuses expressions over masked columns. |
+| **No credentials for agents** | The connector logs in itself; the agent's DSN or query token only unlocks its own local port. |
+| **Acting for a person** | Every grant shows the person at the vendor it acts for; when they leave the vendor's org, their grants stop working. |
+| **Connect links** | `tunr invite create` — one link takes the customer's IT from sign-in to the install command. It approves nothing. |
 | **End-to-end TLS** | Between `tunr access` and the connector, pinned to the connector's certificate. |
 | **Audit** | Every grant decision, session and query summary, exportable as CSV. |
 | **Cut access** | Revoke closes live connections in milliseconds; the site kill switch revokes everything. |
@@ -115,111 +140,15 @@ npm install @tunr/cli     # Node.js
 
 What it guarantees, how, and what it doesn't: **[docs/bridge/security.md](docs/bridge/security.md)**.
 Getting started: [customer](docs/bridge/quickstart-customer.md) · [vendor](docs/bridge/quickstart-vendor.md) · protocol: [docs/protocol/bridge.md](docs/protocol/bridge.md).
+For the customer's IT team: [English](docs/bridge/for-your-it-team.md) · [Türkçe](docs/bridge/bt-ekibiniz-icin.md). For your coding agent: [agent-prompt.md](docs/bridge/agent-prompt.md).
 
 > **Status: preview.** Live on tunr.sh and end-to-end tested (two docker
-> suites in CI); expect sharp edges. Postgres and raw TCP resources today;
-> MySQL/MSSQL later.
+> suites in CI); expect sharp edges. PostgreSQL, SQL Server (query mode) and
+> raw TCP resources today; MySQL later.
 
 ---
 
-## Cloud — deploy & host
-
-<p align="center">
-  <img src="assets/demo.gif" alt="An agent calls tunr_deploy; the build streams and the app goes live at https://standup.tunr.sh" width="800" />
-</p>
-
-```bash
-tunr login                        # magic-link, token goes to your OS keychain
-tunr deploy --name my-app         # build + run; prints the live URL
-tunr apps                         # list your apps
-tunr apps logs my-app --follow    # stream build + runtime logs
-tunr apps delete my-app           # remove it, free the subdomain
-```
-
-| | |
-|---|---|
-| **Build** | Nixpacks auto-detect — Node, Python, Go, Ruby, Rust, PHP, Java. A `Dockerfile` is used if present. |
-| **Isolation** | Every app runs in its own gVisor sandbox with CPU, memory and disk quotas. |
-| **Scale to zero** | Idle → paused with its memory reclaimed (~20 MB resident), then stopped. Wake p50 is ~150 ms. |
-| **Secrets** | `.env` files are never uploaded. Pass them with `--env KEY=VALUE`. |
-| **Stays up** | Close your laptop. The app keeps serving. |
-
-```bash
-tunr deploy --name sprint --port 3000 --env DATABASE_URL=postgres://…
-```
-
-> **Status: preview.** Deploy works end to end and is what the MCP tools drive.
-> Role-based sharing, per-app SQLite and `tunr rollback` are **not built yet** —
-> see [Roadmap](#roadmap) for what's real and what isn't.
-
----
-
-## Agent-native (MCP)
-
-The CLI and the MCP server are two faces of the same control plane. Anything
-you can do in a terminal, your agent can do in a tool call.
-
-**Claude Code:**
-
-```bash
-claude mcp add tunr -- tunr mcp
-```
-
-**Claude Desktop** (`~/.claude/claude_desktop_config.json`) **/ Cursor** (`.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "tunr": { "command": "tunr", "args": ["mcp"] }
-  }
-}
-```
-
-### Tools
-
-| Tool | What it does |
-|---|---|
-| `tunr_deploy` | Build & host a directory on the tunr cloud, return the live URL |
-| `tunr_list_apps` | List deployed apps with URL and status |
-| `tunr_app_logs` | Read an app's build + runtime logs (for debugging a bad deploy) |
-| `tunr_delete_app` | Delete an app and free its subdomain |
-| `tunr_share` | Open a temporary public tunnel to a running local port |
-| `tunr_status` | List active tunnels |
-| `tunr_inspect` | List HTTP requests captured by a tunnel |
-| `tunr_replay` | Replay a captured request against your local server |
-| `tunr_stop` | Close a tunnel |
-
-`tunr_deploy` and `tunr_share` are deliberately distinct, and the tool
-descriptions say so: *deploy* means "host this, it should outlive my laptop",
-*share* means "expose what's running on :3000 right now". Cloud tools need
-`tunr login` first.
-
----
-
-## Client demos — for freelancers and vibecoders
-
-Showing a client something that still runs on your laptop? Three flags make the
-free tunnel safe to hand to someone who isn't a developer.
-
-<p align="center">
-  <img src="assets/client-demo.gif" alt="tunr share with --demo, --freeze and --inject-widget: a client's delete is intercepted, a crash is hidden, feedback arrives in the terminal" width="360" />
-</p>
-
-```bash
-tunr share -p 3000 --demo --freeze --inject-widget --qr
-```
-
-| Flag | What the client sees | What actually happens |
-|---|---|---|
-| `--demo` | Buttons work — "Order deleted ✓" | `POST`/`PUT`/`PATCH`/`DELETE` are answered by tunr with a fake success (JSON bodies are echoed back) and never reach your app. GraphQL queries still go through. Messages the visitor sends over WebSockets are dropped. Tune it with `--demo-allow` / `--demo-block` ([details](docs/VIBECODER_FEATURES.md#--demo-safe-read-only-mode)). |
-| `--freeze` | The page, as it was a second ago | Your dev server crashed or returned a 5xx; tunr serves the last good response (`X-Tunr-Freeze-Cache: HIT`) while you fix it. |
-| `--inject-widget` | A 💬 **Feedback** button on every page | Their message, page URL and screen size land in your terminal. No code changes — tunr injects it into the HTML. |
-| `--auto-login` | Already signed in to a demo account | tunr adds your session cookie (or `Bearer …` header) to every request: `--auto-login "session=demo-token"`. |
-| `--qr` · `--password` · `--ttl 1h` | A QR code to open it on their phone; a password; a link that expires | Access control that takes one flag each. |
-
----
-
-## Tunnels
+## Tunnels — show out
 
 Still free, still unlimited, still 3 seconds.
 
@@ -401,6 +330,112 @@ Global flags: `--relay URL` (point at your own relay), `--verbose`.
 
 ---
 
+## Client demos — show out, safely
+
+Showing a client something that still runs on your laptop? Three flags make the
+free tunnel safe to hand to someone who isn't a developer.
+
+<p align="center">
+  <img src="assets/client-demo.gif" alt="tunr share with --demo, --freeze and --inject-widget: a client's delete is intercepted, a crash is hidden, feedback arrives in the terminal" width="360" />
+</p>
+
+```bash
+tunr share -p 3000 --demo --freeze --inject-widget --qr
+```
+
+| Flag | What the client sees | What actually happens |
+|---|---|---|
+| `--demo` | Buttons work — "Order deleted ✓" | `POST`/`PUT`/`PATCH`/`DELETE` are answered by tunr with a fake success (JSON bodies are echoed back) and never reach your app. GraphQL queries still go through. Messages the visitor sends over WebSockets are dropped. Tune it with `--demo-allow` / `--demo-block` ([details](docs/VIBECODER_FEATURES.md#--demo-safe-read-only-mode)). |
+| `--freeze` | The page, as it was a second ago | Your dev server crashed or returned a 5xx; tunr serves the last good response (`X-Tunr-Freeze-Cache: HIT`) while you fix it. |
+| `--inject-widget` | A 💬 **Feedback** button on every page | Their message, page URL and screen size land in your terminal. No code changes — tunr injects it into the HTML. |
+| `--auto-login` | Already signed in to a demo account | tunr adds your session cookie (or `Bearer …` header) to every request: `--auto-login "session=demo-token"`. |
+| `--qr` · `--password` · `--ttl 1h` | A QR code to open it on their phone; a password; a link that expires | Access control that takes one flag each. |
+
+---
+
+## Deploy & host — stay up
+
+<p align="center">
+  <img src="assets/demo.gif" alt="An agent calls tunr_deploy; the build streams and the app goes live at https://standup.tunr.sh" width="800" />
+</p>
+
+```bash
+tunr login                        # magic-link, token goes to your OS keychain
+tunr deploy --name my-app         # build + run; prints the live URL
+tunr apps                         # list your apps
+tunr apps logs my-app --follow    # stream build + runtime logs
+tunr apps delete my-app           # remove it, free the subdomain
+```
+
+| | |
+|---|---|
+| **Build** | Nixpacks auto-detect — Node, Python, Go, Ruby, Rust, PHP, Java. A `Dockerfile` is used if present. |
+| **Isolation** | Every app runs in its own gVisor sandbox with CPU, memory and disk quotas. |
+| **Scale to zero** | Idle → paused with its memory reclaimed (~20 MB resident), then stopped. Wake p50 is ~150 ms. |
+| **Secrets** | `.env` files are never uploaded. Pass them with `--env KEY=VALUE`. |
+| **Stays up** | Close your laptop. The app keeps serving. |
+
+```bash
+tunr deploy --name sprint --port 3000 --env DATABASE_URL=postgres://…
+```
+
+> **Status: preview.** Deploy works end to end and is what the MCP tools drive.
+> Role-based sharing, per-app SQLite and `tunr rollback` are **not built yet** —
+> see [Roadmap](#roadmap) for what's real and what isn't.
+
+---
+
+## Agent-native (MCP)
+
+The CLI and the MCP server are two faces of the same control plane. Anything
+you can do in a terminal, your agent can do in a tool call.
+
+**Claude Code:**
+
+```bash
+claude mcp add tunr -- tunr mcp
+```
+
+**Claude Desktop** (`~/.claude/claude_desktop_config.json`) **/ Cursor** (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "tunr": { "command": "tunr", "args": ["mcp"] }
+  }
+}
+```
+
+### Tools
+
+| Tool | What it does |
+|---|---|
+| **Reach in** | *needs `TUNR_AGENT_TOKEN` in the MCP server's env* |
+| `tunr_list_resources` | Customer resources this agent may ask for, with grant status |
+| `tunr_describe_resource` | The resource's schema profile (Nebim, Logo, Netsis…): tables, rules, example queries |
+| `tunr_request_access` | Ask the customer for time-boxed, read-only access, with a reason they read |
+| `tunr_access_status` | Pending, approved, denied, revoked or expired |
+| `tunr_query` | Run one read-only statement on an approved database; rows as JSON |
+| `tunr_open_access` / `tunr_close_access` | Open or close a local port (DSN or query endpoint) to the resource |
+| **Stay up** | |
+| `tunr_deploy` | Build & host a directory on the tunr cloud, return the live URL |
+| `tunr_list_apps` | List deployed apps with URL and status |
+| `tunr_app_logs` | Read an app's build + runtime logs (for debugging a bad deploy) |
+| `tunr_delete_app` | Delete an app and free its subdomain |
+| **Show out** | |
+| `tunr_share` | Open a temporary public tunnel to a running local port |
+| `tunr_status` | List active tunnels |
+| `tunr_inspect` | List HTTP requests captured by a tunnel |
+| `tunr_replay` | Replay a captured request against your local server |
+| `tunr_stop` | Close a tunnel |
+
+`tunr_deploy` and `tunr_share` are deliberately distinct, and the tool
+descriptions say so: *deploy* means "host this, it should outlive my laptop",
+*share* means "expose what's running on :3000 right now". Cloud tools need
+`tunr login` first.
+
+---
+
 ## SDKs
 
 <details>
@@ -504,12 +539,19 @@ tunr config init
 ## Architecture
 
 ```
-Browser ──▶ relay.tunr.sh ──┬── [WebSocket] ──▶ tunr CLI ──▶ localhost:PORT   (tunnel)
-                            │
-                            └── control plane ──▶ tunr-runner ──▶ gVisor sandbox   (cloud app)
-                                     │
-                                Postgres + route cache
+                        ┌── [WebSocket, dialed out] ◀── tunr connect ──▶ customer DB      reach in  (bridge)
+agent / browser ──▶ relay ─┼── [WebSocket, dialed out] ◀── tunr share ───▶ localhost:PORT  show out  (tunnel)
+                        └── control plane ──▶ tunr-runner ──▶ gVisor sandbox        stay up   (deploy)
+                                 │
+                            Postgres + route cache
 ```
+
+**Bridge.** The customer's connector dials out to the relay over one
+WebSocket and announces resource names only. An agent's `tunr access` opens a
+stream per connection; the relay checks the grant, and the connector checks
+it again (Ed25519, key pinned at install) before it reads anything. Streams
+are TLS 1.3 end to end between `tunr access` and the connector. Details:
+[docs/protocol/bridge.md](docs/protocol/bridge.md).
 
 **Tunnels.** The CLI starts a local proxy with an embedded inspector and opens
 one WebSocket to the relay. The relay issues a `*.tunr.sh` subdomain and
@@ -559,6 +601,7 @@ means there is no code yet.
 | | Status |
 |---|---|
 | **Agent Bridge**: connector, grants, read-only Postgres proxy, end-to-end TLS, MCP tools — live on tunr.sh since v0.8.0 | 🚧 Preview |
+| **Agent Bridge**: SQL Server query mode, Nebim/Logo/Netsis profiles, masking, acting-for grants, connect links | 🚧 Unreleased |
 | Bridge dashboard ([app.tunr.sh](https://app.tunr.sh)): approvals, sites, agents & tokens, grants with per-query summaries, audit + CSV/JSON export, webhooks, org settings | 🚧 Preview |
 | Bridge orgs: members with owner / admin / approver / member roles, vendor↔customer links, two-approver rule for read-write | 🚧 Preview |
 | Self-hosted bridge (`docker compose`, built-in `/portal/`, on-demand TLS) | 🚧 Preview |

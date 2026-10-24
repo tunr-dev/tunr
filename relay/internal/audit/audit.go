@@ -83,6 +83,9 @@ const (
 	ActionBridgeAgentDeployed      = "bridge.agent_deployed"
 	ActionBridgeTriggerChanged     = "bridge.trigger_changed"
 	ActionBridgeTriggerFired       = "bridge.trigger_fired"
+	ActionBridgeInviteCreated      = "bridge.invite_created"
+	ActionBridgeInviteRevoked      = "bridge.invite_revoked"
+	ActionBridgeInviteAccepted     = "bridge.invite_accepted"
 
 	// Admin eylemleri
 	ActionAdminUserBanned   = "admin.user_banned"

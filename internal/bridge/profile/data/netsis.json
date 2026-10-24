@@ -1,0 +1,52 @@
+{
+  "name": "netsis",
+  "title": "Netsis (Logo Netsis 3 Standard / Enterprise)",
+  "kind": "mssql",
+  "summary": "Netsis on SQL Server. Columns are plain codes and tables join on code values (CARI_KOD, STOK_KODU), not on numeric IDs. Invoice and dispatch headers share TBLFATUIRS; their lines are stock movements in TBLSTHAR.",
+  "detect": ["TBLCASABIT", "TBLSTSABIT"],
+  "rules": [
+    "STHAR_GCKOD: 'G' = in (giriş), 'C' = out (çıkış). Stock = SUM of G minus SUM of C.",
+    "FTIRSIP (and STHAR_FTIRSIP): 1 sales invoice, 2 purchase invoice, 3 sales dispatch, 4 purchase dispatch, 6 customer order, 7 vendor order, 8/9 warehouse transfer in/out.",
+    "On sales and order lines the account (cari) code is in STHAR_ACIKLAMA; STHAR_CARIKOD is the delivery party.",
+    "Join invoice lines to headers on TBLSTHAR.FISNO = TBLFATUIRS.FATIRS_NO AND STHAR_FTIRSIP = FTIRSIP (likely).",
+    "Some installs store Turkish text in a legacy encoding and wrap it in dbo.TRK(); check one row before trusting text comparisons.",
+    "Use WITH (NOLOCK) on large movement tables so the agent never blocks the ERP."
+  ],
+  "tables": [
+    {"name": "TBLCASABIT", "title": "Account master (cari sabit)", "confidence": "confirmed",
+     "columns": [["CARI_KOD", "Account code"], ["CARI_ISIM", "Account name"], ["CARI_IL", "City"], ["CARI_ILCE", "District"], ["RAPOR_KODU1", "Report code 1"], ["ACIK1", "Note"]]},
+    {"name": "TBLCAHAR", "title": "Account ledger (cari hareket)", "confidence": "confirmed",
+     "columns": [["CARI_KOD", "Account code"], ["TARIH", "Date"], ["VADE_TARIHI", "Due date"], ["BELGE_NO", "Document number"], ["ACIKLAMA", "Description"], ["BORC", "Debit"], ["ALACAK", "Credit"], ["HAREKET_TURU", "A opening, B invoice, C return, D cash, E/F note, G/H cheque, K debit/credit note (likely)"], ["PLASIYER_KODU", "Sales rep"], ["PROJE_KODU", "Project"]],
+     "joins": ["TBLCASABIT ON CARI_KOD"]},
+    {"name": "TBLSTSABIT", "title": "Item master (stok sabit)", "confidence": "confirmed",
+     "columns": [["STOK_KODU", "Item code"], ["STOK_ADI", "Item name"], ["ALIS_FIAT1", "Purchase price 1"], ["OLCU_BR1", "Unit (likely)"], ["SATIS_FIAT1", "Sales price 1 (likely)"], ["KDV_ORANI", "VAT rate (likely)"]]},
+    {"name": "TBLSTHAR", "title": "Stock movements (stok hareket) — also invoice and dispatch lines", "confidence": "confirmed",
+     "columns": [["STOK_KODU", "Item code"], ["FISNO", "Document number"], ["STHAR_TARIH", "Date"], ["STHAR_GCKOD", "'G' in, 'C' out"], ["STHAR_GCMIK", "Quantity"], ["STHAR_NF", "Net price"], ["STHAR_BF", "Unit price"], ["STHAR_HTUR", "Movement type (H dispatch, I closed invoice, J open invoice, L return)"], ["STHAR_FTIRSIP", "Document type (see rules)"], ["STHAR_ACIKLAMA", "Account code on sales/order lines"], ["STHAR_CARIKOD", "Delivery party"], ["DEPO_KODU", "Warehouse"]],
+     "joins": ["TBLSTSABIT ON STOK_KODU", "TBLFATUIRS ON FISNO = FATIRS_NO AND STHAR_FTIRSIP = FTIRSIP"]},
+    {"name": "TBLFATUIRS", "title": "Invoice / dispatch header (fatura-irsaliye üst)", "confidence": "confirmed",
+     "columns": [["SUBE_KODU", "Branch"], ["FTIRSIP", "Document type (see rules)"], ["FATIRS_NO", "Document number"], ["CARI_KODU", "Account code"], ["TARIH", "Date"], ["TIPI", "1 closed, 2 open, 4 return…"], ["BRUTTUTAR", "Gross amount"], ["KDV", "VAT"], ["GENELTOPLAM", "Grand total"], ["DOVIZTIP", "Currency"], ["ODEMETARIHI", "Payment date"]]},
+    {"name": "TBLSIPAMAS", "title": "Order header (sipariş üst)", "confidence": "confirmed",
+     "columns": [["FATIRS_NO", "Order number"], ["CARI_KODU", "Account code"], ["TARIH", "Date"]]},
+    {"name": "TBLSIPATRA", "title": "Order lines (sipariş satır), STHAR_* columns", "confidence": "confirmed",
+     "columns": [["FISNO", "Order number"], ["STOK_KODU", "Item code"], ["STHAR_GCMIK", "Quantity"], ["STHAR_NF", "Net price"], ["STRA_SIPKONT", "Order line control"]]},
+    {"name": "TBLSTOKPH", "title": "Stock balances per item and warehouse (maintained by trigger)", "confidence": "confirmed",
+     "columns": [["STOK_KODU", "Item code"], ["TOP_GIRIS_MIK", "Total in"], ["TOP_CIKIS_MIK", "Total out"], ["SUBE_KODU", "Branch"], ["DEPO_KODU", "Warehouse"]],
+     "notes": "Stock on hand = TOP_GIRIS_MIK - TOP_CIKIS_MIK."}
+  ],
+  "queries": [
+    {"title": "Stock on hand per warehouse for one item", "confidence": "confirmed",
+     "sql": "SELECT A.STOK_KODU, B.STOK_ADI, A.DEPO_KODU, A.TOP_GIRIS_MIK - A.TOP_CIKIS_MIK AS BAKIYE FROM TBLSTOKPH A WITH (NOLOCK) JOIN TBLSTSABIT B ON A.STOK_KODU = B.STOK_KODU WHERE A.STOK_KODU = 'ITEM-CODE'"},
+    {"title": "Open balance of one account", "confidence": "confirmed",
+     "sql": "SELECT C.CARI_KOD, C.CARI_ISIM, SUM(H.BORC - H.ALACAK) AS BAKIYE FROM TBLCAHAR H WITH (NOLOCK) JOIN TBLCASABIT C ON C.CARI_KOD = H.CARI_KOD WHERE H.CARI_KOD = 'ACCOUNT-CODE' GROUP BY C.CARI_KOD, C.CARI_ISIM"},
+    {"title": "Sales invoices, last 30 days", "confidence": "confirmed",
+     "sql": "SELECT FATIRS_NO, TARIH, CARI_KODU, GENELTOPLAM FROM TBLFATUIRS WITH (NOLOCK) WHERE FTIRSIP = '1' AND TARIH >= DATEADD(day, -30, GETDATE())"}
+  ],
+  "sources": [
+    "https://netsisnedir.wordpress.com",
+    "https://www.10em.net/knowledgebase.php?article=25",
+    "https://erpne.org/iki-tarih-arasi-bakiyeli-cari-ve-stok-hareketleri_topic3104.html",
+    "https://erpne.org/siparis-sorgusu_topic4597.html",
+    "https://erpne.org/erp-bilgilendirme-servisi-ile-stok-bakiye_topic1595.html",
+    "https://www.delphiturkiye.com/forum/viewtopic.php?t=30352"
+  ]
+}

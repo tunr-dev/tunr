@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -301,8 +302,11 @@ func readHello(conn *websocket.Conn) (*HelloData, error) {
 		if !slugRe.MatchString(res.Name) || strings.Contains(res.Name, "--") {
 			return nil, fmt.Errorf("invalid resource name %q", res.Name)
 		}
-		if res.Kind != "postgres" && res.Kind != "tcp" && res.Kind != "http" {
+		if res.Kind != "postgres" && res.Kind != "mssql" && res.Kind != "tcp" && res.Kind != "http" {
 			return nil, fmt.Errorf("resource %s: unsupported kind %q", res.Name, res.Kind)
+		}
+		if err := validProfile(res); err != nil {
+			return nil, fmt.Errorf("resource %s: %w", res.Name, err)
 		}
 		if seen[res.Name] {
 			return nil, fmt.Errorf("duplicate resource %q", res.Name)
@@ -312,10 +316,50 @@ func readHello(conn *websocket.Conn) (*HelloData, error) {
 	return &hello, nil
 }
 
+var (
+	profileRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,40}$`)
+	profileTableRe = regexp.MustCompile(`^[A-Za-z0-9_$#@. -]{1,128}$`)
+)
+
+const maxProfileTables = 500
+
+// validProfile checks the optional profile fields: a name, at most 500 table
+// names, a timestamp. They are shown to linked vendors, so they stay small
+// and plain.
+func validProfile(r ResourceDecl) error {
+	if r.Profile == "" {
+		if len(r.ProfileTables) > 0 || r.ProfileVerifiedAt != "" {
+			return errors.New("profile_tables without a profile")
+		}
+		return nil
+	}
+	if !profileRe.MatchString(r.Profile) {
+		return fmt.Errorf("invalid profile name %q", r.Profile)
+	}
+	if len(r.ProfileTables) > maxProfileTables {
+		return fmt.Errorf("at most %d profile tables", maxProfileTables)
+	}
+	for _, t := range r.ProfileTables {
+		if !profileTableRe.MatchString(t) {
+			return fmt.Errorf("invalid profile table name %q", t)
+		}
+	}
+	if r.ProfileVerifiedAt != "" {
+		if _, err := time.Parse(time.RFC3339, r.ProfileVerifiedAt); err != nil {
+			return errors.New("profile_verified_at must be RFC 3339")
+		}
+	}
+	return nil
+}
+
 func toDecls(in []ResourceDecl) []db.ResourceDecl {
 	out := make([]db.ResourceDecl, len(in))
 	for i, r := range in {
-		out[i] = db.ResourceDecl{Name: r.Name, Kind: r.Kind}
+		d := db.ResourceDecl{Name: r.Name, Kind: r.Kind, Profile: r.Profile, ProfileTables: r.ProfileTables}
+		if t, err := time.Parse(time.RFC3339, r.ProfileVerifiedAt); err == nil {
+			d.ProfileVerifiedAt = &t
+		}
+		out[i] = d
 	}
 	return out
 }

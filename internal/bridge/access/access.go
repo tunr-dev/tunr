@@ -186,14 +186,73 @@ func (c *Client) Serve(ctx context.Context, l net.Listener) error {
 	}
 }
 
-// Bridge carries one local connection over one relay stream. When the site
-// supports it the stream is end-to-end encrypted: a TLS 1.3 session with the
-// connector, pinned to the certificate fingerprint the relay reported.
+// Bridge carries one local connection over one relay stream.
 func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 	defer local.Close()
-	tok, err := c.token(ctx)
+	conn, stream, err := c.Dial(ctx)
 	if err != nil {
 		return err
+	}
+	defer stream.Close()
+
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(conn, local); _ = closeWrite(conn); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(local, conn); done <- struct{}{} }()
+	select {
+	case <-ctx.Done():
+	case <-done:
+	}
+	if r := stream.reason(); r != "" {
+		c.logf("stream closed: %s", r)
+	}
+	return nil
+}
+
+// Stream is an open bridge stream: conn carries the bytes (TLS-wrapped when
+// end-to-end encrypted); Close ends the stream.
+type Stream struct {
+	net.Conn
+	ws *wsConn
+}
+
+// NewStream wraps a plain connection as a Stream (tests, local tools).
+func NewStream(c net.Conn) *Stream { return &Stream{Conn: c} }
+
+// Close closes the stream on both legs.
+func (s *Stream) Close() error {
+	_ = s.Conn.Close()
+	if s.ws == nil {
+		return nil
+	}
+	return s.ws.Close()
+}
+
+// Reason is the relay's or connector's close reason, once closed.
+func (s *Stream) Reason() string {
+	if s.ws == nil {
+		return ""
+	}
+	return s.ws.reason()
+}
+
+// Open opens one stream to the resource, for callers that speak a protocol
+// over it themselves (query mode).
+func (c *Client) Open(ctx context.Context) (*Stream, error) {
+	conn, ws, err := c.Dial(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &Stream{Conn: conn, ws: ws}, nil
+}
+
+// Dial opens one relay stream. When the site supports it the stream is end-to-end
+// encrypted: a TLS 1.3 session with the connector, pinned to the certificate
+// fingerprint the relay reported. The returned conn carries the bytes; the
+// wsConn is the underlying stream (close it to end the stream).
+func (c *Client) Dial(ctx context.Context) (net.Conn, *wsConn, error) {
+	tok, err := c.token(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
 	hdr := http.Header{"Authorization": {"Bearer " + tok}}
 	if c.ClientSecret != "" {
@@ -209,19 +268,19 @@ func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 		if err != nil && resp.StatusCode != http.StatusSwitchingProtocols {
 			rerr := decodeRefusal(resp)
 			_ = resp.Body.Close()
-			return rerr
+			return nil, nil, rerr
 		}
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		return fmt.Errorf("dial relay: %w", err)
+		return nil, nil, fmt.Errorf("dial relay: %w", err)
 	}
 	stream := newWSConn(ws)
-	defer stream.Close()
 
 	ready, err := stream.ready()
 	if err != nil {
-		return err
+		_ = stream.Close()
+		return nil, nil, err
 	}
 	var conn net.Conn = stream
 	switch {
@@ -229,33 +288,24 @@ func (c *Client) Bridge(ctx context.Context, local net.Conn) error {
 		tc := tls.Client(stream, PinnedTLS(ready.SiteCertSHA256))
 		_ = tc.SetDeadline(time.Now().Add(15 * time.Second))
 		if err := tc.HandshakeContext(ctx); err != nil {
+			_ = stream.Close()
 			if r := stream.reason(); r != "" {
 				// The connector refused the stream (policy), not the TLS.
 				c.logf("stream %s closed: %s", ready.StreamID, r)
-				return fmt.Errorf("stream refused by the customer's connector: %s", r)
+				return nil, nil, fmt.Errorf("stream refused by the customer's connector: %s", r)
 			}
-			return fmt.Errorf("end-to-end TLS with the connector failed: %w", err)
+			return nil, nil, fmt.Errorf("end-to-end TLS with the connector failed: %w", err)
 		}
 		_ = tc.SetDeadline(time.Time{})
 		conn = tc
 		c.logf("stream %s open (grant %s, end-to-end encrypted to site certificate sha256 %s)", ready.StreamID, ready.GrantID, ready.SiteCertSHA256)
 	case c.RequireE2E:
-		return errors.New("the customer's connector does not support end-to-end encryption (update it) and --require-e2e is set")
+		_ = stream.Close()
+		return nil, nil, errors.New("the customer's connector does not support end-to-end encryption (update it) and --require-e2e is set")
 	default:
 		c.logf("stream %s open (grant %s) — NOT end-to-end encrypted: the customer's connector is too old", ready.StreamID, ready.GrantID)
 	}
-
-	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(conn, local); _ = closeWrite(conn); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(local, conn); done <- struct{}{} }()
-	select {
-	case <-ctx.Done():
-	case <-done:
-	}
-	if r := stream.reason(); r != "" {
-		c.logf("stream %s closed: %s", ready.StreamID, r)
-	}
-	return nil
+	return conn, stream, nil
 }
 
 func closeWrite(c net.Conn) error {

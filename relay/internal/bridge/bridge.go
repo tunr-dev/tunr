@@ -181,6 +181,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /bridge/access/check", s.access.ServeCheck)
 	s.registerAPI(mux)
 	s.registerGrants(mux)
+	s.registerInvites(mux)
 	s.registerPortal(mux)
 	s.registerHosted(mux)
 }

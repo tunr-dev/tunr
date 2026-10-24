@@ -5,6 +5,11 @@ some of it. With tunr Bridge you run one connector, decide which systems it
 may reach, and approve every agent, resource and time window yourself. Plan
 on 10–15 minutes.
 
+**Got a link from your vendor?** Open it, sign in, name your organization and
+your first site, and the page shows the install command — steps 1, 2 and 4
+in one go. Accepting the link approves nothing: you still decide on every
+request (step 5).
+
 ## 1. Sign in and create your organization
 
 Open the dashboard (<https://app.tunr.sh>; on a self-hosted relay, the portal
@@ -45,6 +50,38 @@ sudo tunr connect pg-role --database logo --tables invoices,stock --resource erp
 psql -h 10.0.0.5 -U postgres -f pg-role.sql      # your DBA runs this once
 ```
 
+**SQL Server (Nebim, Logo, Netsis and most Turkish ERPs).** Add it as an
+`mssql` resource. The connector runs each statement itself with a read-only
+login and returns the rows — the agent never gets a SQL Server login:
+
+```bash
+sudo tunr connect resource add nebim --kind mssql --target 10.0.0.7:1433 --database NEBIM_V3 --profile nebim-v3
+sudo tunr connect mssql-role --database NEBIM_V3 --tables cdItem,cdItemDesc,ItemInventory --resource nebim > mssql-role.sql
+sqlcmd -S 10.0.0.7 -U sa -i mssql-role.sql      # your DBA runs this once
+```
+
+Without `--tables` the login can read every table (`db_datareader`); writes,
+stored procedures and schema changes are denied either way.
+
+**Check it.** `verify` logs in exactly as the connector will, tells you if the
+login could write, and matches the schema profile against your database:
+
+```bash
+sudo tunr connect resource verify nebim
+```
+
+Profiles (`nebim-v3`, `logo-tiger`, `netsis`; `tunr profile list`) tell the
+vendor's agent what the tables mean so it doesn't guess. Only the matched
+table *names* are shared, and only after `verify`.
+
+**Hide sensitive columns.** For PostgreSQL, mask columns in results:
+`--mask cari.vergi_no=partial:4` (also `redact`, `hash`, `null`) on
+`resource add`. For SQL Server, `mssql-role --mask
+dbo.cdCurrAcc.IdentityNum='partial(0,"*******",4)'` sets up SQL Server's own
+Dynamic Data Masking — read the warning it prints: masking applies to every
+login without `UNMASK`. Masking hides values but can't stop an agent testing a
+guess with `WHERE`; leave truly secret columns out of the role.
+
 Then start it as a service:
 
 ```bash
@@ -64,9 +101,10 @@ a channel you trust, so they can check it.
 
 ## 5. Approve requests
 
-Requests appear under **Approvals** with the agent, the resource, read-only or
-read-write, the duration and the vendor's reason. Approve or deny. Access ends
-by itself when the time is up.
+Requests appear under **Approvals** with the agent, the person at the vendor
+it acts for, the resource, read-only or read-write, the duration and the
+vendor's reason. Approve or deny. Access ends by itself when the time is up,
+and as soon as that person leaves the vendor's organization.
 
 - **Revoke** closes that agent's open connections immediately.
 - **Sites → Cut all access** revokes every approved grant on the site and

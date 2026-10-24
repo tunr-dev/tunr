@@ -20,6 +20,8 @@ import (
 
 	"github.com/tunr-dev/tunr/internal/auth"
 	"github.com/tunr-dev/tunr/internal/bridge"
+	"github.com/tunr-dev/tunr/internal/bridge/connector/pgproxy"
+	"github.com/tunr-dev/tunr/internal/bridge/profile"
 	"github.com/tunr-dev/tunr/internal/tunnel"
 )
 
@@ -43,14 +45,88 @@ type Config struct {
 // Resource is a named target the connector may reach. Target is the ONLY
 // address the connector will ever dial for this name.
 type Resource struct {
-	Name       string  `json:"name"`
-	Kind       string  `json:"kind"`                 // postgres | tcp | http
-	Target     string  `json:"target"`               // host:port, never sent to the relay
-	Database   string  `json:"database,omitempty"`   // postgres
-	Credential string  `json:"credential,omitempty"` // secret-store name holding {"user","password"}
-	SSLMode    string  `json:"sslmode,omitempty"`    // postgres upstream sslmode (default "prefer")
-	Limits     *Limits `json:"limits,omitempty"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`                 // postgres | mssql | tcp | http
+	Target     string `json:"target"`               // host:port, never sent to the relay
+	Database   string `json:"database,omitempty"`   // postgres, mssql
+	Credential string `json:"credential,omitempty"` // secret-store name holding {"user","password"}
+	SSLMode    string `json:"sslmode,omitempty"`    // postgres upstream sslmode (default "prefer")
+	// Encrypt is the mssql upstream encryption (go-mssqldb: disable | false |
+	// true | strict; default false = only the login is encrypted).
+	Encrypt                string  `json:"encrypt,omitempty"`
+	TrustServerCertificate bool    `json:"trust_server_certificate,omitempty"`
+	Limits                 *Limits `json:"limits,omitempty"`
+	// Profile is a built-in schema profile (internal/bridge/profile). The
+	// relay and linked vendors learn its name and, once `tunr connect
+	// resource verify` ran, which of its tables exist here.
+	Profile           string   `json:"profile,omitempty"`
+	ProfileTables     []string `json:"profile_tables,omitempty"`
+	ProfileVerifiedAt string   `json:"profile_verified_at,omitempty"`
+	// Masks hide column values in results (postgres; for mssql use SQL
+	// Server's own Dynamic Data Masking: tunr connect mssql-role --mask).
+	Masks []MaskRule `json:"masks,omitempty"`
 }
+
+// MaskRule is one masked column of a postgres resource.
+type MaskRule struct {
+	Schema   string `json:"schema,omitempty"`
+	Table    string `json:"table,omitempty"` // empty: this column name in every table
+	Column   string `json:"column"`
+	Strategy string `json:"strategy,omitempty"` // redact (default) | partial | hash | null
+	KeepLast int    `json:"keep_last,omitempty"`
+}
+
+// ParseMaskRule parses "[[schema.]table.]column[=redact|partial:N|hash|null]".
+func ParseMaskRule(s string) (MaskRule, error) {
+	target, strat, _ := strings.Cut(s, "=")
+	parts := strings.Split(strings.TrimSpace(target), ".")
+	var m MaskRule
+	switch len(parts) {
+	case 1:
+		m.Column = parts[0]
+	case 2:
+		m.Table, m.Column = parts[0], parts[1]
+	case 3:
+		m.Schema, m.Table, m.Column = parts[0], parts[1], parts[2]
+	default:
+		return MaskRule{}, fmt.Errorf("mask %q: want [[schema.]table.]column[=strategy]", s)
+	}
+	strat = strings.TrimSpace(strat)
+	if name, n, ok := strings.Cut(strat, ":"); ok {
+		k, err := strconv.Atoi(n)
+		if err != nil || name != "partial" {
+			return MaskRule{}, fmt.Errorf("mask %q: strategy must be redact, partial:N, hash or null", s)
+		}
+		strat, m.KeepLast = name, k
+	}
+	m.Strategy = strat
+	return m, m.validate()
+}
+
+func (m MaskRule) validate() error {
+	for _, id := range []string{m.Schema, m.Table, m.Column} {
+		if id != "" && !pgIdentRe.MatchString(id) {
+			return fmt.Errorf("mask: invalid identifier %q", id)
+		}
+	}
+	if m.Column == "" {
+		return errors.New("mask: column is required")
+	}
+	if m.Schema != "" && m.Table == "" {
+		return errors.New("mask: a schema needs a table")
+	}
+	if !pgproxy.ValidStrategy(m.Strategy) {
+		return fmt.Errorf("mask %s: strategy must be redact, partial, hash or null", m.Column)
+	}
+	if m.KeepLast < 0 || m.KeepLast > 16 || (m.KeepLast > 0 && m.Strategy != "partial") {
+		return fmt.Errorf("mask %s: keep_last is 1-16 and only for partial", m.Column)
+	}
+	return nil
+}
+
+// IsDatabase reports a resource the connector logs in to itself (with the
+// stored read-only credential) rather than piping raw bytes to.
+func (r *Resource) IsDatabase() bool { return r.Kind == "postgres" || r.Kind == "mssql" }
 
 // Limits are local ceilings; a grant may narrow them, never widen them.
 type Limits struct {
@@ -140,14 +216,41 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("duplicate resource %q", r.Name)
 		}
 		seen[r.Name] = true
-		if r.Kind != "postgres" && r.Kind != "tcp" && r.Kind != "http" {
-			return fmt.Errorf("resource %s: kind must be postgres, tcp or http", r.Name)
+		if r.Kind != "postgres" && r.Kind != "mssql" && r.Kind != "tcp" && r.Kind != "http" {
+			return fmt.Errorf("resource %s: kind must be postgres, mssql, tcp or http", r.Name)
 		}
 		if err := validTarget(r.Target); err != nil {
 			return fmt.Errorf("resource %s: %w", r.Name, err)
 		}
-		if r.Kind == "postgres" && r.Database == "" {
-			return fmt.Errorf("resource %s: postgres needs a database", r.Name)
+		if r.IsDatabase() && r.Database == "" {
+			return fmt.Errorf("resource %s: %s needs a database", r.Name, r.Kind)
+		}
+		switch r.Encrypt {
+		case "", "disable", "false", "true", "strict":
+		default:
+			return fmt.Errorf("resource %s: encrypt must be disable, false, true or strict", r.Name)
+		}
+		if r.Kind != "mssql" && (r.Encrypt != "" || r.TrustServerCertificate) {
+			return fmt.Errorf("resource %s: encrypt and trust_server_certificate are mssql options", r.Name)
+		}
+		if r.Profile != "" {
+			p, ok := profile.Get(r.Profile)
+			if !ok {
+				return fmt.Errorf("resource %s: unknown profile %q (tunr profile list)", r.Name, r.Profile)
+			}
+			if p.Kind != r.Kind {
+				return fmt.Errorf("resource %s: profile %s is for %s resources", r.Name, r.Profile, p.Kind)
+			}
+		} else if len(r.ProfileTables) > 0 {
+			return fmt.Errorf("resource %s: profile_tables without a profile", r.Name)
+		}
+		if len(r.Masks) > 0 && r.Kind != "postgres" {
+			return fmt.Errorf("resource %s: masks are for postgres; for mssql use tunr connect mssql-role --mask (SQL Server Dynamic Data Masking)", r.Name)
+		}
+		for _, m := range r.Masks {
+			if err := m.validate(); err != nil {
+				return fmt.Errorf("resource %s: %w", r.Name, err)
+			}
 		}
 		switch r.SSLMode {
 		case "", "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
@@ -199,11 +302,16 @@ func ParseRelayKey(s string) (ed25519.PublicKey, error) {
 	return nil, errors.New("relay_key: not a 32-byte ed25519 public key")
 }
 
-// Decls is what the relay is told about resources: names and kinds, nothing else.
+// Decls is what the relay is told about resources: names, kinds and schema
+// profiles — never targets, credentials or limits.
 func (c *Config) Decls() []bridge.ResourceDecl {
 	out := make([]bridge.ResourceDecl, 0, len(c.Resources))
 	for _, r := range c.Resources {
-		out = append(out, bridge.ResourceDecl{Name: r.Name, Kind: r.Kind})
+		d := bridge.ResourceDecl{Name: r.Name, Kind: r.Kind, Profile: r.Profile}
+		if r.Profile != "" && r.ProfileVerifiedAt != "" {
+			d.ProfileTables, d.ProfileVerifiedAt = r.ProfileTables, r.ProfileVerifiedAt
+		}
+		out = append(out, d)
 	}
 	return out
 }

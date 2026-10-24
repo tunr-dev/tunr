@@ -36,12 +36,20 @@ type GrantView struct {
 	Address         string `json:"address"` // "<customer>/<resource>"
 	RequestedTTLSec int    `json:"requested_ttl_secs"`
 	FirstApproved   bool   `json:"first_approval_recorded"` // rw: waiting for the second approver
+	// OnBehalfOf is RequestedBy's e-mail, shown to the customer: "agent X,
+	// acting for ayse@vendor". Empty when no person is recorded.
+	OnBehalfOf string `json:"on_behalf_of,omitempty"`
+	// OnBehalfGone: that person has left the vendor org (or was deleted), so
+	// the grant can no longer be used.
+	OnBehalfGone bool `json:"on_behalf_gone,omitempty"`
 }
 
 const grantViewSelect = `
 	SELECT ` + grantCols + `,
-	       a.name, v.slug, c.slug, r.name, r.kind, r.site_id, g.approved_by IS NOT NULL
+	       a.name, v.slug, c.slug, r.name, r.kind, r.site_id, g.approved_by IS NOT NULL,
+	       COALESCE(u.email, ''), NOT ` + onBehalfStillValid + `
 	FROM grants g
+	LEFT JOIN users u ON u.id = g.requested_by
 	JOIN agents a    ON a.id = g.agent_id
 	JOIN orgs v      ON v.id = g.vendor_org_id
 	JOIN orgs c      ON c.id = g.customer_org_id
@@ -53,9 +61,9 @@ func scanGrantView(row pgx.Row) (*GrantView, error) {
 	var lim []byte
 	g := &v.Grant
 	if err := row.Scan(&g.ID, &g.AgentID, &g.ResourceID, &g.VendorOrgID, &g.CustomerOrgID,
-		&g.Mode, &g.Status, &g.Reason, &ttl, &g.ApprovedAt, &g.ExpiresAt, &lim, &g.CreatedAt,
+		&g.Mode, &g.Status, &g.Reason, &ttl, &g.ApprovedAt, &g.ExpiresAt, &lim, &g.CreatedAt, &g.RequestedBy,
 		&v.AgentName, &v.VendorSlug, &v.CustomerSlug, &v.ResourceName, &v.ResourceKind, &v.SiteID,
-		&v.FirstApproved); err != nil {
+		&v.FirstApproved, &v.OnBehalfOf, &v.OnBehalfGone); err != nil {
 		return nil, mapErr(err)
 	}
 	g.RequestedTTL = time.Duration(ttl) * time.Second
@@ -100,6 +108,7 @@ type NewGrant struct {
 	TTL                              time.Duration
 	Limits                           json.RawMessage // already validated; nil = none
 	AutoApprove                      bool            // policy decided by the caller
+	RequestedBy                      string          // vendor-side user ID the grant acts for; "" = none
 }
 
 // CreateGrant inserts a grant request (pending, or approved at once when
@@ -116,17 +125,19 @@ func (db *DB) CreateGrant(ctx context.Context, n NewGrant) (*GrantView, error) {
 	var id string
 	err := db.pool.QueryRow(ctx, `
 		INSERT INTO grants AS g (id, agent_id, resource_id, vendor_org_id, customer_org_id, mode, reason,
-		                         requested_ttl_secs, limits, status, approved_at, expires_at)
+		                         requested_ttl_secs, limits, status, approved_at, expires_at,
+		                         requested_by, requested_by_set)
 		SELECT $1, a.id, r.id, a.org_id, r.org_id, $5, NULLIF($6, ''), $7::int, $8::jsonb, $9::text,
 		       CASE WHEN $9::text = 'approved' THEN now() END,
-		       CASE WHEN $9::text = 'approved' THEN now() + make_interval(secs => $7::int) END
+		       CASE WHEN $9::text = 'approved' THEN now() + make_interval(secs => $7::int) END,
+		       NULLIF($10::text, '')::uuid, $10::text <> ''
 		FROM agents a
 		JOIN resources r ON r.id = $4 AND r.status = 'active'
 		JOIN links l ON l.vendor_org_id = a.org_id AND l.customer_org_id = r.org_id AND l.status = 'active'
 		WHERE a.id = $3 AND a.org_id = $2 AND a.status = 'active'
 		RETURNING g.id`,
 		newID("grt_"), n.VendorOrgID, n.AgentID, n.ResourceID, n.Mode, n.Reason,
-		int(n.TTL/time.Second), lim, status).Scan(&id)
+		int(n.TTL/time.Second), lim, status, n.RequestedBy).Scan(&id)
 	if err != nil {
 		return nil, mapErr(err)
 	}

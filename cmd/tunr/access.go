@@ -40,7 +40,8 @@ hosted agent — TUNR_AGENT_BOOTSTRAP, set automatically) and an
 approved grant. The resource's real address never reaches this machine.`,
 		Example: `  export TUNR_AGENT_TOKEN=…
   tunr access acme/nas --port 14455
-  tunr access acme/erp-db --port 15432   # prints a read-only postgresql:// DSN`,
+  tunr access acme/erp-db --port 15432   # prints a read-only postgresql:// DSN
+  tunr access acme/nebim --port 15433    # mssql: a local HTTP query endpoint (POST /query)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ts, err := agentTokens()
@@ -91,6 +92,14 @@ approved grant. The resource's real address never reaches this machine.`,
 				// The DSN goes to stdout alone so scripts can capture it.
 				term.Dim.Println("  read-only; writes are refused and every query is logged for the data owner")
 				fmt.Println(access.DSN(addr.String(), cl.ClientSecret))
+			}
+			if chk.Kind == "mssql" {
+				// Query mode: the customer's connector runs each statement with
+				// its read-only login and returns rows as JSON.
+				term.Dim.Println("  read-only; writes are refused and every query is logged for the data owner")
+				term.Dim.Println(fmt.Sprintf(`  curl -s http://%s/query -H "Authorization: Bearer $TUNR_QUERY_TOKEN" -d '{"sql":"SELECT TOP 5 name FROM sys.tables"}'`, addr))
+				fmt.Printf("TUNR_QUERY_URL=http://%s/query\nTUNR_QUERY_TOKEN=%s\n", addr, cl.ClientSecret)
+				return access.ServeQuery(ctx, l, cl.NewQuerySession(), cl.ClientSecret)
 			}
 			return cl.Serve(ctx, l)
 		},
