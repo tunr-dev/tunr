@@ -85,7 +85,7 @@ func newP4(t *testing.T) *p4 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = c.WriteJSON(msg(MsgHello, HelloData{Resources: []ResourceDecl{{"nas", "tcp"}, {"erp-db", "postgres"}}}))
+	_ = c.WriteJSON(msg(MsgHello, HelloData{Resources: []ResourceDecl{{Name: "nas", Kind: "tcp"}, {Name: "erp-db", Kind: "postgres"}}}))
 	var w Message
 	_ = c.ReadJSON(&w)
 	e.conn, e.connMsgs = c, make(chan Message, 64)

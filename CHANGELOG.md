@@ -5,6 +5,34 @@ All notable changes to tunr are documented here. This project adheres to
 
 ## Unreleased
 
+### Added
+- **bridge:** SQL Server resources (`--kind mssql`) — Nebim, Logo, Netsis and
+  most Turkish ERPs. The connector runs each statement itself with a read-only
+  login, inside a transaction it always rolls back, behind a T-SQL allow-list;
+  the agent never gets a SQL Server login. `tunr access` serves it as a local
+  `POST /query` endpoint.
+- **bridge:** `tunr connect mssql-role` prints the T-SQL for a read-only login
+  (`SELECT` only, `DENY` on writes, `EXECUTE`, `ALTER`, `UNMASK`), optionally
+  with SQL Server Dynamic Data Masking (`--mask`).
+- **bridge:** schema profiles for Nebim V3, Logo Tiger/Go and Netsis
+  (`tunr profile list|show`, `resource add --profile`). `tunr connect resource
+  verify` checks the login is read-only and which profile tables exist; only
+  those table names are shared with linked vendors.
+- **bridge:** MCP tools `tunr_describe_resource` (the profile, verified or not)
+  and `tunr_query` (one read-only statement, rows as JSON, 200 rows by default)
+  for postgres and mssql resources.
+- **bridge:** column masking for postgres resources (`resource add --mask
+  table.column=redact|partial:N|hash|null`), following aliases and refusing
+  expressions over masked columns.
+- **bridge:** grants act for a person — the requester, or whoever issued the
+  agent's token. The customer sees who; the grant stops working when that
+  person leaves the vendor org.
+- **bridge:** one-time connect links for vendors (`tunr invite create`): the
+  customer signs in, gets an org, a link to the vendor and a site in one step.
+- **docs:** a brief to paste into a coding agent
+  (`docs/bridge/agent-prompt.md`) and a guide for the customer's IT team in
+  English and Turkish.
+
 ### Security
 - **bridge:** a portal sign-in link asks before signing in unless this browser
   requested that address's link (login CSRF).

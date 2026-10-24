@@ -138,7 +138,7 @@ func TestHelloNeverLeaksTargets(t *testing.T) {
 	_ = json.Unmarshal([]byte(strings.Split(sent, "\n")[0]), &m)
 	var h bridge.HelloData
 	_ = json.Unmarshal(m.Data, &h)
-	if m.Type != bridge.MsgHello || len(h.Resources) != 2 || h.Resources[0] != (bridge.ResourceDecl{Name: "erp-db", Kind: "postgres"}) {
+	if m.Type != bridge.MsgHello || len(h.Resources) != 2 || h.Resources[0].Name != "erp-db" || h.Resources[0].Kind != "postgres" || h.Resources[0].Profile != "" {
 		t.Errorf("hello = %s", sent)
 	}
 }

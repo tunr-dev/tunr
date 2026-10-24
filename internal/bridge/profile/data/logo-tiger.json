@@ -1,0 +1,57 @@
+{
+  "name": "logo-tiger",
+  "title": "Logo Tiger / Logo Go",
+  "kind": "mssql",
+  "summary": "Logo Tiger and Logo Go on SQL Server. Firm (card) tables are LG_FFF_TABLE and period (transaction) tables LG_FFF_PP_TABLE, where FFF is the three-digit firm number and PP the two-digit period (LG_001_CLCARD, LG_001_01_INVOICE). Summary views are LV_FFF_PP_… . Every table's key is LOGICALREF; foreign keys are the *REF columns pointing at it.",
+  "detect": ["LG_{FIRM}_CLCARD", "LG_{FIRM}_ITEMS"],
+  "rules": [
+    "Always filter CANCELLED = 0 on transaction tables.",
+    "ITEMS.ACTIVE is inverted: 0 = active, 1 = passive.",
+    "Item names are ITEMS.NAME; account names are CLCARD.DEFINITION_ (with the trailing underscore).",
+    "On STLINE use LINETYPE = 0 for goods lines (others are promotions, discounts, surcharges, services).",
+    "INVOICE.TRCODE: 1 purchase, 4 service received, 7 retail sale, 8 wholesale sale, 9 service given (likely). Sales invoices are TRCODE IN (7, 8).",
+    "Ledger balances (CLFLINE) are per period: a balance across years needs a UNION over each LG_FFF_PP_CLFLINE table, or must start from the period's opening entries.",
+    "Find the firm and period numbers first: SELECT name FROM sys.tables WHERE name LIKE 'LG[_]%[_]CLCARD' (firms) and LIKE 'LG[_]%[_]%[_]INVOICE' (periods)."
+  ],
+  "tables": [
+    {"name": "LG_{FIRM}_CLCARD", "title": "Current account card (cari kart): customers and vendors", "confidence": "confirmed",
+     "columns": [["LOGICALREF", "Key"], ["CODE", "Account code"], ["DEFINITION_", "Title / name"], ["ACTIVE", "Active flag"], ["CARDTYPE", "Card type"], ["TAXNR", "Tax number"], ["TAXOFFICE", "Tax office"], ["CITY", "City"], ["TELNRS1", "Phone"], ["EMAILADDR", "E-mail"], ["SPECODE", "Special code"]]},
+    {"name": "LG_{FIRM}_ITEMS", "title": "Item card (malzeme kartı)", "confidence": "confirmed",
+     "columns": [["LOGICALREF", "Key"], ["CODE", "Item code"], ["NAME", "Item name"], ["ACTIVE", "0 = active, 1 = passive"], ["CARDTYPE", "1 trade goods, 10 raw material, 11 semi-finished, 12 finished good, 13 consumable, 4 fixed asset"], ["UNITSETREF", "Unit set"], ["VAT", "VAT rate"], ["STGRPCODE", "Group code"], ["SPECODE", "Special code"]]},
+    {"name": "LG_{FIRM}_UNITSETL", "title": "Unit lines (birim)", "confidence": "confirmed",
+     "columns": [["LOGICALREF", "Key"], ["CODE", "Unit code"], ["NAME", "Unit name"], ["UNITSETREF", "Unit set"], ["MAINUNIT", "Main unit flag"], ["CONVFACT1", "Conversion factor 1"], ["CONVFACT2", "Conversion factor 2"]]},
+    {"name": "LG_{FIRM}_PRCLIST", "title": "Price list (fiyat listesi)", "confidence": "confirmed",
+     "columns": [["CARDREF", "Item (ITEMS.LOGICALREF)"], ["CLIENTCODE", "Account code, if account-specific"], ["PRICE", "Price"], ["UOMREF", "Unit"], ["CURRENCY", "Currency"], ["PTYPE", "1 purchase, 2 sales"], ["BEGDATE", "Valid from"], ["ENDDATE", "Valid to"], ["PRIORITY", "Priority"]]},
+    {"name": "LG_{FIRM}_{PERIOD}_INVOICE", "title": "Invoice header (fatura)", "confidence": "confirmed",
+     "columns": [["LOGICALREF", "Key"], ["GRPCODE", "1 purchase, 2 sales"], ["TRCODE", "Invoice type (7 retail, 8 wholesale sale…)"], ["FICHENO", "Invoice number"], ["DATE_", "Date"], ["CLIENTREF", "Account (CLCARD.LOGICALREF)"], ["SOURCEINDEX", "Warehouse"], ["CANCELLED", "Cancelled flag"], ["GROSSTOTAL", "Gross total"], ["TOTALVAT", "VAT"], ["NETTOTAL", "Net total"], ["TRCURR", "Currency"]],
+     "joins": ["LG_{FIRM}_CLCARD ON CLIENTREF = LOGICALREF"]},
+    {"name": "LG_{FIRM}_{PERIOD}_STLINE", "title": "Stock lines (stok hareketi) — also the lines of invoices and dispatches", "confidence": "confirmed",
+     "columns": [["LOGICALREF", "Key"], ["STOCKREF", "Item (ITEMS.LOGICALREF)"], ["INVOICEREF", "Invoice"], ["STFICHEREF", "Stock slip / dispatch"], ["ORDFICHEREF", "Order"], ["CLIENTREF", "Account"], ["TRCODE", "Movement type"], ["IOCODE", "1–2 in, 3–4 out (likely)"], ["SOURCEINDEX", "Warehouse"], ["AMOUNT", "Quantity"], ["PRICE", "Unit price"], ["TOTAL", "Line total"], ["LINENET", "Net line total"], ["DATE_", "Date"], ["LINETYPE", "0 = goods"], ["CANCELLED", "Cancelled flag"]]},
+    {"name": "LG_{FIRM}_{PERIOD}_STFICHE", "title": "Stock slips and dispatch notes (irsaliye / stok fişi)", "confidence": "confirmed",
+     "columns": [["LOGICALREF", "Key"], ["FICHENO", "Number"], ["DATE_", "Date"], ["TRCODE", "Type"], ["IOCODE", "In/out"], ["GRPCODE", "1 purchase, 2 sales, 3 material"], ["CLIENTREF", "Account"], ["INVOICEREF", "Invoice"], ["NETTOTAL", "Net total"], ["CANCELLED", "Cancelled flag"]]},
+    {"name": "LG_{FIRM}_{PERIOD}_CLFLINE", "title": "Account ledger lines (cari hareket)", "confidence": "confirmed",
+     "columns": [["LOGICALREF", "Key"], ["CLIENTREF", "Account"], ["DATE_", "Date"], ["MODULENR", "Source module"], ["TRCODE", "Transaction type"], ["SIGN", "0 debit (borç), 1 credit (alacak) — likely"], ["AMOUNT", "Amount"], ["TRNET", "Amount in transaction currency"], ["TRCURR", "Currency"], ["LINEEXP", "Description"], ["CANCELLED", "Cancelled flag"]]},
+    {"name": "LG_{FIRM}_{PERIOD}_ORFICHE", "title": "Order header (sipariş)", "confidence": "confirmed",
+     "columns": [["LOGICALREF", "Key"], ["TRCODE", "1 sales order (alınan), 2 purchase order (verilen)"], ["FICHENO", "Number"], ["DATE_", "Date"], ["CLIENTREF", "Account"], ["STATUS", "Status"], ["NETTOTAL", "Net total"], ["CANCELLED", "Cancelled flag"]]},
+    {"name": "LG_{FIRM}_{PERIOD}_ORFLINE", "title": "Order lines", "confidence": "confirmed",
+     "columns": [["ORDFICHEREF", "Order"], ["STOCKREF", "Item"], ["AMOUNT", "Ordered quantity"], ["SHIPPEDAMOUNT", "Shipped quantity"], ["PRICE", "Unit price"], ["TOTAL", "Line total"], ["CLOSED", "Closed flag"], ["DUEDATE", "Due date"]]},
+    {"name": "LV_{FIRM}_{PERIOD}_STINVTOT", "title": "Stock totals per item and warehouse (view)", "confidence": "confirmed",
+     "columns": [["STOCKREF", "Item"], ["INVENNO", "Warehouse; -1 = all warehouses"], ["DATE_", "Date"], ["ONHAND", "Quantity on hand"]],
+     "notes": "Filter INVENNO = -1 for the all-warehouse total."}
+  ],
+  "queries": [
+    {"title": "Stock on hand for one item, all warehouses", "confidence": "confirmed",
+     "sql": "SELECT I.CODE, I.NAME, SUM(T.ONHAND) AS Qty FROM LV_001_01_STINVTOT T JOIN LG_001_ITEMS I ON T.STOCKREF = I.LOGICALREF WHERE T.INVENNO = -1 AND I.CODE = 'ITEM-CODE' GROUP BY I.CODE, I.NAME"},
+    {"title": "Sales invoices, last 30 days", "confidence": "confirmed",
+     "sql": "SELECT F.FICHENO, F.DATE_, C.DEFINITION_, F.NETTOTAL FROM LG_001_01_INVOICE F JOIN LG_001_CLCARD C ON F.CLIENTREF = C.LOGICALREF WHERE F.TRCODE IN (7, 8) AND F.CANCELLED = 0 AND F.DATE_ >= DATEADD(day, -30, GETDATE())"},
+    {"title": "Open balance of one account in the current period", "confidence": "likely",
+     "sql": "SELECT C.CODE, C.DEFINITION_, SUM(CASE WHEN L.SIGN = 0 THEN L.AMOUNT ELSE -L.AMOUNT END) AS Balance FROM LG_001_01_CLFLINE L JOIN LG_001_CLCARD C ON L.CLIENTREF = C.LOGICALREF WHERE L.CANCELLED = 0 AND C.CODE = 'ACCOUNT-CODE' GROUP BY C.CODE, C.DEFINITION_"}
+  ],
+  "sources": [
+    "https://ugurozpinar.github.io/Logo/",
+    "https://raporx.com.tr/blog-logo-sql-sorgulari.html",
+    "https://www.kemalbayat.com.tr/2015/01/30/logo-tiger-depo-bazinda-malzemestok-durumlari/",
+    "https://github.com/Erserca/Logo_SQL_Sorgusu",
+    "https://www.noktabilgiislem.com/blog/logo-sql-veritabaninda-trcode-nedir"
+  ]
+}

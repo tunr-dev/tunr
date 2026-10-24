@@ -24,7 +24,7 @@ import (
 // webhooks (P4-T1…T4), for humans (/orgs/{org}/…) and agents (/agent/…).
 //
 // Policy (roadmap §4, with the P3 rule that raw TCP can't be read-only):
-//   - postgres → ro only (rw is not offered in the MVP)
+//   - postgres, mssql → ro only (rw is not offered)
 //   - tcp      → rw only, which always needs two different approvers
 //   - http     → not available yet
 //   - TTL 1m … the customer org's max (settings.max_grant_ttl, default 8h)
@@ -32,6 +32,9 @@ import (
 //   - auto-approve only for ro, only for the named linked vendor, only
 //     within its max_ttl
 //   - reason is required (≤ 500 chars): the customer reads it
+//   - a grant acts for a vendor-side person (the requesting human, or the
+//     human who issued the agent token); it is only usable while that person
+//     is still in the vendor org
 
 const (
 	defaultMaxGrantTTL = 8 * time.Hour
@@ -127,12 +130,12 @@ func (s *Server) buildGrant(ctx context.Context, vendorOrgID, agentID string, in
 		return nil, err
 	}
 	switch res.Kind {
-	case "postgres":
+	case "postgres", "mssql":
 		if in.Mode == "" {
 			in.Mode = "ro"
 		}
 		if in.Mode != "ro" {
-			return nil, &policyErr{"mode_not_allowed", "postgres resources are read-only (ro)"}
+			return nil, &policyErr{"mode_not_allowed", res.Kind + " resources are read-only (ro)"}
 		}
 	case "tcp":
 		if in.Mode == "" {
@@ -180,9 +183,14 @@ func (s *Server) buildGrant(ctx context.Context, vendorOrgID, agentID string, in
 		Reason: in.Reason, TTL: ttl, Limits: limits, AutoApprove: auto}, nil
 }
 
-// createGrant validates, inserts, audits and notifies. userID may be "".
-func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, vendorOrgID, agentID, userID string, in grantInput) {
+// createGrant validates, inserts, audits and notifies. userID is the human
+// who made the request ("" for agents); onBehalf is the person the grant acts
+// for ("" = nobody recorded).
+func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, vendorOrgID, agentID, userID, onBehalf string, in grantInput) {
 	ng, err := s.buildGrant(r.Context(), vendorOrgID, agentID, in)
+	if ng != nil {
+		ng.RequestedBy = onBehalf
+	}
 	var pe *policyErr
 	switch {
 	case errors.As(err, &pe):
@@ -204,7 +212,11 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, vendorOrgID
 	if g.Status == "approved" {
 		action, event = audit.ActionBridgeGrantAutoApproved, "grant.approved"
 	}
-	s.grantAudit(r.Context(), g, userID, action, map[string]any{"reason": g.Reason, "ttl": g.RequestedTTL.String()})
+	extra := map[string]any{"reason": g.Reason, "ttl": g.RequestedTTL.String()}
+	if g.OnBehalfOf != "" {
+		extra["on_behalf_of"] = g.OnBehalfOf
+	}
+	s.grantAudit(r.Context(), g, userID, action, extra)
 	s.notify.Grant(event, g)
 	writeJSON(w, http.StatusCreated, g)
 }
@@ -267,7 +279,7 @@ func (s *Server) requestGrantHuman(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "invalid_request", "agent_id is required")
 		return
 	}
-	s.createGrant(w, r, m.ID, in.AgentID, userFrom(r).ID, in)
+	s.createGrant(w, r, m.ID, in.AgentID, userFrom(r).ID, userFrom(r).ID, in)
 }
 
 func (s *Server) getGrant(w http.ResponseWriter, r *http.Request) {
@@ -656,7 +668,19 @@ func (s *Server) agentRequestGrant(w http.ResponseWriter, r *http.Request, c *au
 		apiError(w, http.StatusForbidden, "forbidden", "an agent can only request grants for itself")
 		return
 	}
-	s.createGrant(w, r, c.OrgID, c.AgentID(), "", in)
+	// The grant acts for whoever issued this token, and only while they are
+	// still in the vendor org.
+	issuer, member, err := s.db.AgentTokenIssuer(r.Context(), c.OrgID, c.TokenID())
+	if err != nil {
+		s.dbError(w, err, "agent token")
+		return
+	}
+	if issuer != "" && !member {
+		apiError(w, http.StatusForbidden, "issuer_left",
+			"the person who issued this agent token is no longer in your org; issue a new token")
+		return
+	}
+	s.createGrant(w, r, c.OrgID, c.AgentID(), "", issuer, in)
 }
 
 func (s *Server) agentGetGrant(w http.ResponseWriter, r *http.Request, c *auth.AgentClaims) {

@@ -403,7 +403,7 @@ func newCatalogCmd() *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "RESOURCE\tKIND\tGRANT\tEXPIRES IN\tDESCRIPTION")
+			fmt.Fprintln(tw, "RESOURCE\tKIND\tPROFILE\tGRANT\tEXPIRES IN\tDESCRIPTION")
 			for _, it := range items {
 				g := it.GrantStatus
 				if g == "" {
@@ -411,7 +411,14 @@ func newCatalogCmd() *cobra.Command {
 				} else {
 					g += " (" + it.GrantMode + ")"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", it.Address, it.Kind, g, until(it.GrantExpiresAt), it.Description)
+				prof := "-"
+				if it.Profile != "" {
+					prof = it.Profile
+					if it.ProfileVerifiedAt == nil {
+						prof += " (unverified)"
+					}
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", it.Address, it.Kind, prof, g, until(it.GrantExpiresAt), it.Description)
 			}
 			return tw.Flush()
 		},

@@ -308,3 +308,103 @@ func TestProxyPsql(t *testing.T) {
 		t.Fatalf("psql update: %q %v", out, err)
 	}
 }
+
+func TestProxyMasking(t *testing.T) {
+	e := newPGEnv(t)
+	ctx := context.Background()
+	admin, _ := url.Parse(os.Getenv("TUNR_TEST_DATABASE_URL"))
+	admin.Path = "/" + e.db
+	o, err := pgx.Connect(ctx, admin.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		"CREATE TABLE cari (id int, ad text, vergi_no text, eposta text)",
+		"INSERT INTO cari VALUES (1, 'Acme', '1234567890', 'a@acme.test'), (2, 'Beta', '9876543210', NULL)",
+		"GRANT SELECT ON cari TO " + e.role,
+	} {
+		if _, err := o.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	o.Close(ctx)
+
+	pc := e.clientConfig(t, clientSecret, Limits{})
+	pc.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c1, c2 := net.Pipe()
+		go func() {
+			_ = Serve(context.Background(), c2, Config{
+				Upstream: e.upstream, Database: e.db, User: e.role, Password: e.rolePW, SSLMode: "disable",
+				ClientSecretHash: HashSecret(clientSecret), Logf: t.Logf, MaskKey: []byte("k"),
+				Masks: []Mask{{Table: "cari", Column: "vergi_no", Strategy: "partial", KeepLast: 4}, {Column: "eposta", Strategy: "hash"}},
+				Audit: func(a Audit) { e.mu.Lock(); e.audits = append(e.audits, a); e.mu.Unlock() },
+			})
+		}()
+		return c1, nil
+	}
+	c, err := pgconn.ConnectConfig(ctx, pc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(ctx)
+	run := func(sql string) ([][]string, error) {
+		res, err := c.Exec(ctx, sql).ReadAll()
+		if err != nil {
+			return nil, err
+		}
+		var out [][]string
+		for _, r := range res {
+			if r.Err != nil {
+				return nil, r.Err
+			}
+			for _, row := range r.Rows {
+				var cells []string
+				for _, v := range row {
+					if v == nil {
+						cells = append(cells, "NULL")
+					} else {
+						cells = append(cells, string(v))
+					}
+				}
+				out = append(out, cells)
+			}
+		}
+		return out, nil
+	}
+
+	rows, err := run("SELECT id, ad, vergi_no, eposta FROM cari ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[0][1] != "Acme" || rows[0][2] != "******7890" || !strings.HasPrefix(rows[0][3], "h:") || rows[1][3] != "NULL" {
+		t.Errorf("masked rows = %v", rows)
+	}
+	again, _ := run("SELECT eposta FROM cari WHERE id = 1")
+	if len(again) != 1 || again[0][0] != rows[0][3] {
+		t.Errorf("hash must be stable: %v vs %v", again, rows[0][3])
+	}
+	// An alias is still the same column (table OID + attribute number).
+	if rows, err := run("SELECT vergi_no AS v, * FROM cari WHERE id = 2"); err != nil || rows[0][0] != "******3210" || rows[0][3] != "******3210" {
+		t.Errorf("alias / star: %v %v", rows, err)
+	}
+	// Expressions, aggregates and unions over a masked column are refused.
+	for _, q := range []string{
+		"SELECT vergi_no || '' FROM cari",
+		"SELECT left(vergi_no, 3) FROM cari",
+		"SELECT count(*) FROM cari WHERE vergi_no LIKE '1%'",
+		"SELECT ad FROM cari UNION SELECT vergi_no FROM cari",
+	} {
+		if _, err := run(q); pgCode(err) != "42501" {
+			t.Errorf("%s: want 42501, got %v", q, err)
+		}
+	}
+	// Unrelated expressions still work, and the session survives refusals.
+	if rows, err := run("SELECT count(*), max(id) FROM cari"); err != nil || rows[0][0] != "2" {
+		t.Errorf("aggregate without masked columns: %v %v", rows, err)
+	}
+	// The extended protocol is refused on a masked resource.
+	rr := c.ExecParams(ctx, "SELECT ad FROM cari WHERE id = $1", [][]byte{[]byte("1")}, nil, nil, nil)
+	if _, err := rr.Close(); pgCode(err) != "42501" {
+		t.Errorf("extended protocol: %v", err)
+	}
+}

@@ -65,6 +65,8 @@ func init() {
 		newAccessCmd(),
 		newAgentCmd(),
 		newCatalogCmd(),
+		newProfileCmd(),
+		newInviteCmd(),
 		newGrantsCmd(),
 		newStartCmd(),
 		newStopCmd(),

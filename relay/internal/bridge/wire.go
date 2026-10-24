@@ -33,6 +33,13 @@ const (
 type ResourceDecl struct {
 	Name string `json:"name"`
 	Kind string `json:"kind"`
+	// Profile names a built-in schema profile ("nebim-v3"); ProfileTables
+	// are the profile's tables the customer's connector found in the real
+	// database (`tunr connect resource verify`). Optional; older peers omit
+	// and ignore them.
+	Profile           string   `json:"profile,omitempty"`
+	ProfileTables     []string `json:"profile_tables,omitempty"`
+	ProfileVerifiedAt string   `json:"profile_verified_at,omitempty"` // RFC 3339
 }
 
 // HelloData is the connector's first message. The site token travels in

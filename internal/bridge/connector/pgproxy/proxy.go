@@ -59,6 +59,10 @@ type Config struct {
 	Audit            func(Audit)
 	Logf             func(string, ...any)
 	ConnectTimeout   time.Duration
+	// Masks are columns masked in results (mask.go); MaskKey keys the "hash"
+	// strategy so equal values hash alike within one customer.
+	Masks   []Mask
+	MaskKey []byte
 }
 
 const maxAuditText = 4096
@@ -85,7 +89,8 @@ func Serve(ctx context.Context, client net.Conn, cfg Config) error {
 		return err
 	}
 
-	hj, err := connectUpstream(ctx, cfg)
+	mk := newMasker(cfg.Masks, cfg.MaskKey)
+	hj, err := connectUpstream(ctx, cfg, mk)
 	if err != nil {
 		cfg.Logf("pgproxy: upstream: %v", err)
 		fatal(be, "08006", "tunr bridge: the customer's database refused the connection")
@@ -109,7 +114,7 @@ func Serve(ctx context.Context, client net.Conn, cfg Config) error {
 	}
 
 	// The QPS bucket starts full: a fresh session may burst up to QPS queries.
-	s := &session{cfg: cfg, be: be, fe: hj.Frontend, txStatus: 'I',
+	s := &session{cfg: cfg, be: be, fe: hj.Frontend, txStatus: 'I', mask: mk,
 		stmts: map[string]Verdict{}, portals: map[string]string{}, bucket: float64(cfg.Limits.QPS), bucketAt: time.Now()}
 	errc := make(chan error, 2)
 	go func() { errc <- s.fromClient() }()
@@ -178,7 +183,7 @@ func authenticateClient(be *pgproto3.Backend, wantHash string) error {
 	return nil
 }
 
-func connectUpstream(ctx context.Context, cfg Config) (*pgconn.HijackedConn, error) {
+func connectUpstream(ctx context.Context, cfg Config, mk *masker) (*pgconn.HijackedConn, error) {
 	host, port, err := net.SplitHostPort(cfg.Upstream)
 	if err != nil {
 		return nil, err
@@ -222,6 +227,12 @@ func connectUpstream(ctx context.Context, cfg Config) (*pgconn.HijackedConn, err
 	if err != nil {
 		return nil, err
 	}
+	if mk != nil {
+		if err := mk.resolve(cctx, conn); err != nil {
+			_ = conn.Close(context.Background())
+			return nil, err
+		}
+	}
 	return conn.Hijack()
 }
 
@@ -239,6 +250,7 @@ type cycle struct {
 	text     []string
 	rows     int
 	active   bool
+	masked   bool // the statement mentions a masked column
 }
 
 type session struct {
@@ -252,6 +264,10 @@ type session struct {
 	txStatus byte
 	exceeded bool  // current cycle hit max_rows; drop rows until ReadyForQuery
 	bytes    int64 // server → client, session total
+
+	mask    *masker // nil: no masked columns on this resource
+	plan    []*Mask // per column of the current result
+	swallow bool    // a result was refused: drop everything until ReadyForQuery
 
 	// client goroutine only
 	skipUntilSync bool
@@ -315,6 +331,9 @@ func (s *session) beginOrJoin(v Verdict, sql string) {
 	s.cur.commands = append(s.cur.commands, v.Command)
 	s.cur.tables = append(s.cur.tables, v.Tables...)
 	s.cur.text = append(s.cur.text, sql)
+	if s.mask != nil && s.mask.mentions(sql) {
+		s.cur.masked = true
+	}
 }
 
 func (s *session) fromClient() error {
@@ -349,6 +368,15 @@ func (s *session) fromClient() error {
 
 		case *pgproto3.Parse:
 			if s.skipUntilSync {
+				continue
+			}
+			if s.mask != nil {
+				s.auditBlocked(Verdict{Command: "PARSE"}, m.Query)
+				s.skipUntilSync = true
+				if err := s.toClient(true, s.blockErr("this resource masks columns, so only the simple query protocol is "+
+					"accepted (psql, psycopg2, tunr_query; pgx: default_query_exec_mode=simple_protocol)")); err != nil {
+					return err
+				}
 				continue
 			}
 			v := Classify(m.Query)
@@ -472,8 +500,50 @@ func (s *session) fromServer() error {
 		if err != nil {
 			return err
 		}
+		s.mu.Lock()
+		swallow := s.swallow
+		s.mu.Unlock()
+		if _, rfq := msg.(*pgproto3.ReadyForQuery); swallow && !rfq {
+			continue
+		}
 		switch m := msg.(type) {
+		case *pgproto3.RowDescription:
+			if s.mask != nil {
+				rules, computed := s.mask.plan(m.Fields)
+				s.mu.Lock()
+				refuse := computed && s.cur.masked
+				text := strings.Join(nonEmpty(s.cur.text), ";\n")
+				if refuse {
+					s.swallow = true
+				} else {
+					s.plan = rules
+				}
+				s.mu.Unlock()
+				if refuse {
+					s.cfg.Audit(Audit{Command: "MASKED_EXPRESSION", Blocked: true, QueryText: truncate(text)})
+					if err := s.toClient(true, s.blockErr("a masked column can be selected only as a plain column, "+
+						"not inside an expression, aggregate or UNION")); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+			sinceFlush = 0
+			if err := s.toClient(true, m); err != nil {
+				return err
+			}
+
 		case *pgproto3.DataRow:
+			if s.mask != nil {
+				s.mu.Lock()
+				plan := s.plan
+				s.mu.Unlock()
+				for i, rule := range plan {
+					if rule != nil && i < len(m.Values) && m.Values[i] != nil {
+						m.Values[i] = s.mask.apply(rule, m.Values[i])
+					}
+				}
+			}
 			size := 0
 			for _, v := range m.Values {
 				size += len(v)
@@ -525,6 +595,8 @@ func (s *session) fromServer() error {
 			s.mu.Lock()
 			s.txStatus = m.TxStatus
 			s.exceeded = false
+			s.swallow = false
+			s.plan = nil
 			s.mu.Unlock()
 			s.finishCycle(false)
 			sinceFlush = 0

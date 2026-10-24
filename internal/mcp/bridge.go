@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/tunr-dev/tunr/internal/bridge/query"
 )
 
 // bridge.go — Agent Bridge tools (P4-T5). They let an agent discover a
@@ -44,7 +46,9 @@ type OpenedAccess struct {
 	LocalAddress   string    `json:"local_address"`
 	GrantID        string    `json:"grant_id"`
 	GrantExpiresAt time.Time `json:"grant_expires_at"`
-	DSN            string    `json:"dsn,omitempty"` // postgres: connection string for this port
+	DSN            string    `json:"dsn,omitempty"`         // postgres: connection string for this port
+	QueryURL       string    `json:"query_url,omitempty"`   // mssql: POST {"sql": …} here
+	QueryToken     string    `json:"query_token,omitempty"` // mssql: bearer token for QueryURL
 	Hint           string    `json:"hint,omitempty"`
 }
 
@@ -55,7 +59,16 @@ type BridgeTools interface {
 	AccessStatus(ctx context.Context, grantID string) (BridgeGrant, error)
 	OpenAccess(ctx context.Context, resource string, localPort int) (OpenedAccess, error)
 	CloseAccess(resource string) error
+	// DescribeResource explains a resource's schema (its profile, if any).
+	DescribeResource(ctx context.Context, resource string) (any, error)
+	// Query runs one read-only statement on an approved database resource.
+	Query(ctx context.Context, resource, sql string, maxRows int) (*query.Response, error)
 }
+
+// DefaultQueryRows caps tunr_query results unless the agent asks for more:
+// rows land in the model's context, and a summary query is almost always the
+// better question.
+const DefaultQueryRows = 200
 
 // WithBridge wires the Agent Bridge tools.
 func (s *Server) WithBridge(b BridgeTools) *Server {
@@ -64,8 +77,8 @@ func (s *Server) WithBridge(b BridgeTools) *Server {
 }
 
 const bridgeRule = " Access is granted per agent, per resource, for a limited time, and every " +
-	"connection is logged for the customer. Postgres resources are read-only: write " +
-	"statements are rejected."
+	"connection is logged for the customer. Database resources (postgres, mssql) are read-only: " +
+	"write statements are rejected."
 
 func bridgeToolList() []map[string]interface{} {
 	str := func(desc string) map[string]interface{} {
@@ -120,6 +133,35 @@ func bridgeToolList() []map[string]interface{} {
 			},
 		},
 		{
+			"name": "tunr_describe_resource",
+			"description": "Explain a customer database before you query it: which product it is (e.g. Nebim V3, " +
+				"Logo Tiger, Netsis), what its main tables and columns mean, rules you must follow (such as " +
+				"Logo's CANCELLED = 0), and example queries. Says whether the profile was checked against this " +
+				"customer's real database. Call it before writing SQL; it needs no grant." + bridgeRule,
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"required":   []string{"resource"},
+				"properties": map[string]interface{}{"resource": str("Resource address, e.g. \"acme/nebim\"")},
+			},
+		},
+		{
+			"name": "tunr_query",
+			"description": "Run one read-only SQL statement on an approved database resource and get the rows " +
+				"as JSON. Opens access automatically if needed. postgres: PostgreSQL SQL. mssql: T-SQL, SELECT or " +
+				"WITH only (no SET, EXEC, temp tables or cross-database names). Results are capped at max_rows " +
+				"(default 200): prefer aggregates (COUNT, SUM, GROUP BY) and TOP/LIMIT over pulling raw rows. " +
+				"The customer sees every statement." + bridgeRule,
+			"inputSchema": map[string]interface{}{
+				"type":     "object",
+				"required": []string{"resource", "sql"},
+				"properties": map[string]interface{}{
+					"resource": str("Resource address, e.g. \"acme/nebim\""),
+					"sql":      str("One read-only statement"),
+					"max_rows": map[string]interface{}{"type": "integer", "description": "Row cap for this query (default 200; the grant's limit still applies)"},
+				},
+			},
+		},
+		{
 			"name":        "tunr_close_access",
 			"description": "Close the local port opened by tunr_open_access when you are done with a resource.",
 			"inputSchema": map[string]interface{}{
@@ -133,7 +175,8 @@ func bridgeToolList() []map[string]interface{} {
 
 func (s *Server) bridgeTool(id interface{}, name string, args json.RawMessage) bool {
 	switch name {
-	case "tunr_list_resources", "tunr_request_access", "tunr_access_status", "tunr_open_access", "tunr_close_access":
+	case "tunr_list_resources", "tunr_request_access", "tunr_access_status", "tunr_open_access", "tunr_close_access",
+		"tunr_describe_resource", "tunr_query":
 	default:
 		return false
 	}
@@ -151,6 +194,8 @@ func (s *Server) bridgeTool(id interface{}, name string, args json.RawMessage) b
 		Mode      string `json:"mode"`
 		GrantID   string `json:"grant_id"`
 		LocalPort int    `json:"local_port"`
+		SQL       string `json:"sql"`
+		MaxRows   int    `json:"max_rows"`
 	}
 	if len(args) > 0 && json.Unmarshal(args, &in) != nil {
 		s.sendToolError(id, "invalid arguments")
@@ -192,6 +237,28 @@ func (s *Server) bridgeTool(id interface{}, name string, args json.RawMessage) b
 			return true
 		}
 		reply(s.bridge.OpenAccess(ctx, in.Resource, in.LocalPort))
+	case "tunr_describe_resource":
+		if in.Resource == "" {
+			s.sendToolError(id, "resource is required")
+			return true
+		}
+		reply(s.bridge.DescribeResource(ctx, in.Resource))
+	case "tunr_query":
+		if in.Resource == "" || strings.TrimSpace(in.SQL) == "" {
+			s.sendToolError(id, "resource and sql are required")
+			return true
+		}
+		if in.MaxRows <= 0 {
+			in.MaxRows = DefaultQueryRows
+		}
+		qctx, qcancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer qcancel()
+		resp, err := s.bridge.Query(qctx, in.Resource, in.SQL, in.MaxRows)
+		if err == nil && resp.Error != nil {
+			s.sendToolError(id, resp.Error.Code+": "+resp.Error.Message)
+			return true
+		}
+		reply(resp, err)
 	case "tunr_close_access":
 		if err := s.bridge.CloseAccess(in.Resource); err != nil {
 			s.sendToolError(id, err.Error())

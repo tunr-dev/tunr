@@ -3,8 +3,10 @@ package connector
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/tunr-dev/tunr/internal/auth"
 	"github.com/tunr-dev/tunr/internal/bridge"
+	"github.com/tunr-dev/tunr/internal/bridge/connector/mssqlq"
 	"github.com/tunr-dev/tunr/internal/bridge/connector/pgproxy"
 )
 
@@ -27,9 +30,9 @@ import (
 //   - resolves the resource ID to a name it announced and dials ONLY the
 //     target in its local config for that name,
 //   - refuses kinds it cannot enforce: raw tcp only for "rw" grants (TCP
-//     can't be made read-only); postgres only for "ro" grants and only
-//     through pgproxy — there is no code path that pipes raw bytes to a
-//     postgres resource.
+//     can't be made read-only); postgres and mssql only for "ro" grants and
+//     only through the connector's own session (pgproxy, mssqlq) — there is
+//     no code path that pipes raw bytes to a database resource.
 //
 // Close reasons sent to the relay never include target addresses.
 
@@ -130,19 +133,20 @@ func (m *Manager) Open(ctx context.Context, o bridge.OpenData, send func(bridge.
 		m.Logf("refused stream %s to %s: raw TCP cannot be read-only; needs an rw grant", o.StreamID, res.Name)
 		refuse(send, o.StreamID, "mode_not_enforceable")
 		return
-	case res.Kind == "postgres" && claims.Mode != "ro":
-		m.Logf("refused stream %s to %s: postgres is read-only through the bridge", o.StreamID, res.Name)
+	case res.IsDatabase() && claims.Mode != "ro":
+		m.Logf("refused stream %s to %s: %s is read-only through the bridge", o.StreamID, res.Name, res.Kind)
 		refuse(send, o.StreamID, "mode_not_allowed")
 		return
-	case res.Kind == "postgres" && res.Credential == "":
-		m.Logf("refused stream %s to %s: no credential stored (tunr connect pg-role --resource %s)", o.StreamID, res.Name, res.Name)
+	case res.IsDatabase() && res.Credential == "":
+		m.Logf("refused stream %s to %s: no credential stored (tunr connect %s-role --resource %s)", o.StreamID, res.Name,
+			map[string]string{"postgres": "pg", "mssql": "mssql"}[res.Kind], res.Name)
 		refuse(send, o.StreamID, "no_credential")
 		return
-	case res.Kind == "postgres" && len(o.ClientSecretHash) != 64:
+	case res.IsDatabase() && len(o.ClientSecretHash) != 64:
 		m.Logf("refused stream %s to %s: no client secret (old tunr access?)", o.StreamID, res.Name)
 		refuse(send, o.StreamID, "no_client_secret")
 		return
-	case res.Kind != "tcp" && res.Kind != "postgres":
+	case res.Kind != "tcp" && !res.IsDatabase():
 		refuse(send, o.StreamID, "kind_unsupported")
 		return
 	}
@@ -188,9 +192,9 @@ func (m *Manager) Open(ctx context.Context, o bridge.OpenData, send func(bridge.
 
 // open returns the connection a stream's bytes flow into: the target itself
 // for tcp, or one end of an in-memory pipe whose other end is a pgproxy
-// session for postgres.
+// (postgres) or mssqlq (mssql) session.
 func (m *Manager) open(ctx context.Context, st *stream, res *Resource, claims *GrantClaims, clientHash string) (net.Conn, error) {
-	if res.Kind != "postgres" {
+	if !res.IsDatabase() {
 		dctx, cancel := context.WithTimeout(ctx, dialTimeout)
 		defer cancel()
 		return m.Dial(dctx, "tcp", res.Target)
@@ -207,10 +211,43 @@ func (m *Manager) open(ctx context.Context, st *stream, res *Resource, claims *G
 		return nil, fmt.Errorf("credential %s is not {user, password}", res.Credential)
 	}
 	agentSide, proxySide := net.Pipe()
+	if res.Kind == "mssql" {
+		lim := tighter(res.Limits, claims.Limits)
+		cfg := mssqlq.Config{
+			Upstream: res.Target, Database: res.Database, User: cred.User, Password: cred.Password,
+			Encrypt: res.Encrypt, TrustServerCertificate: res.TrustServerCertificate, ClientSecretHash: clientHash,
+			Limits:  mssqlq.Limits{MaxRows: lim.MaxRows, MaxBytes: lim.MaxBytes, QPS: lim.QPS},
+			AppName: "tunr-bridge " + claims.Subject, Logf: m.Logf,
+			Audit: func(a mssqlq.Audit) {
+				st.send(bridge.NewMessage(bridge.MsgAudit, bridge.AuditData{
+					StreamID: st.id, Command: a.Command, Tables: a.Tables, RowCount: a.RowCount,
+					DurationMS: a.DurationMS, Blocked: a.Blocked, QueryText: a.QueryText,
+				}))
+			},
+		}
+		go func() {
+			if err := mssqlq.Serve(ctx, proxySide, cfg); err != nil {
+				m.Logf("stream %s: mssql: %v", st.id, err)
+			}
+		}()
+		return agentSide, nil
+	}
+	var masks []pgproxy.Mask
+	var maskKey []byte
+	if len(res.Masks) > 0 {
+		k, err := MaskKey(m.Secrets)
+		if err != nil {
+			return nil, err
+		}
+		maskKey = k
+		for _, r := range res.Masks {
+			masks = append(masks, pgproxy.Mask{Schema: r.Schema, Table: r.Table, Column: r.Column, Strategy: r.Strategy, KeepLast: r.KeepLast})
+		}
+	}
 	cfg := pgproxy.Config{
 		Upstream: res.Target, Database: res.Database, User: cred.User, Password: cred.Password,
 		SSLMode: res.SSLMode, ClientSecretHash: clientHash, Limits: tighter(res.Limits, claims.Limits),
-		AppName: "tunr-bridge " + claims.Subject, Logf: m.Logf,
+		AppName: "tunr-bridge " + claims.Subject, Logf: m.Logf, Masks: masks, MaskKey: maskKey,
 		Audit: func(a pgproxy.Audit) {
 			st.send(bridge.NewMessage(bridge.MsgAudit, bridge.AuditData{
 				StreamID: st.id, Command: a.Command, Tables: a.Tables, RowCount: a.RowCount,
@@ -224,6 +261,29 @@ func (m *Manager) open(ctx context.Context, st *stream, res *Resource, claims *G
 		}
 	}()
 	return agentSide, nil
+}
+
+// MaskKeySecret names the secret that keys the "hash" masking strategy. It
+// never leaves the site, so hashes can't be reversed by a dictionary elsewhere.
+const MaskKeySecret = "mask-key"
+
+// MaskKey returns the site's masking key, creating it on first use.
+func MaskKey(secrets auth.SecretStore) ([]byte, error) {
+	if secrets == nil {
+		return nil, errors.New("no secret store")
+	}
+	if v, err := secrets.Get(MaskKeySecret); err == nil && len(v) >= 32 {
+		return []byte(v), nil
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	k := hex.EncodeToString(b)
+	if err := secrets.Set(MaskKeySecret, k); err != nil {
+		return nil, fmt.Errorf("store mask key: %w", err)
+	}
+	return []byte(k), nil
 }
 
 // tighter combines the local resource limits with the grant's: per field,

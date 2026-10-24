@@ -24,7 +24,7 @@ plain HTTP 401 and no upgrade.
 
 | Type | Direction | Fields | Meaning |
 | --- | --- | --- | --- |
-| `bridge_hello` | C→R | `connector_version`, `resources[] {name, kind}`, `tls_cert_sha256?` | Announce resource *names* (never addresses). Names: 3–32 chars `[a-z0-9-]`; kinds `postgres`, `tcp`, `http` (`http` is reserved: announced but not grantable yet, and the CLI cannot create one); max 100. The site's resources become exactly this set (missing ones go `offline`); a name served by another site of the same org is refused (`resource_conflict`) |
+| `bridge_hello` | C→R | `connector_version`, `resources[] {name, kind, profile?, profile_tables?, profile_verified_at?}`, `tls_cert_sha256?` | Announce resource *names* (never addresses). Names: 3–32 chars `[a-z0-9-]`; kinds `postgres`, `mssql`, `tcp`, `http` (`http` is reserved: announced but not grantable yet, and the CLI cannot create one); max 100. `profile` names a built-in schema profile (`[a-z0-9-]`, ≤41 chars); `profile_tables` (≤500 names) are the profile's tables `tunr connect resource verify` found in the real database, with `profile_verified_at` (RFC 3339). Relays before v0.9 refuse the `mssql` kind; they ignore the profile fields. The site's resources become exactly this set (missing ones go `offline`); a name served by another site of the same org is refused (`resource_conflict`) |
 | `bridge_welcome` | R→C | `site_id`, `site_name`, `relay_key`, `resources[] {name, id}` | Connector compares `relay_key` with the key from its install command and disconnects on mismatch |
 | `ping` / `pong` | R→C / C→R | — | Every 30 s; the relay drops a connector silent for 75 s |
 | `error` | R→C | `code`, `message` | Sent before a relay-initiated close: `bad_hello`, `resource_conflict`, `replaced` (a newer connector for the same site connected), `disconnected` (token rotated, site deleted) |
@@ -78,7 +78,57 @@ status`).
 **TCP resources and modes.** Raw TCP cannot be made read-only, so the
 connector opens `tcp` resources only for `rw` grants (which require two
 approvers, P4). `ro` is enforced for `postgres` resources by the connector's
-read-only proxy (P5).
+read-only proxy (P5) and for `mssql` resources by query mode (below).
+
+## Query mode (`mssql`)
+
+An `mssql` stream does not carry the TDS protocol. The connector logs in to
+SQL Server itself with the read-only login from its secret store, runs each
+statement inside a transaction it always rolls back, and answers in
+newline-delimited JSON (`internal/bridge/query`). The agent speaks first:
+
+```
+→ {"auth": "<client secret>"}                    once; its SHA-256 came with bridge_open
+← {"ok": true, "kind": "mssql"}                  or {"error": {code, message}} and close
+→ {"id": "1", "sql": "SELECT …", "max_rows": 100}
+← {"id": "1", "result_sets": [{"columns": [{name, type}], "rows": [[…]]}],
+   "row_count": 3, "truncated": false, "notice": "…", "duration_ms": 12}
+```
+
+Requests are answered in order. Lines are capped at 256 KiB (request) and
+8 MiB (response; larger results come back `truncated`). `max_rows` can only
+narrow the grant's limit. Error codes: `auth_failed`, `upstream`, `blocked`
+(the T-SQL filter refused the statement), `rate_limited`, `data_limit` (the
+session's byte budget is spent; the connector closes the session),
+`db_error`, `bad_request`. Values: numbers and booleans as JSON, `decimal` /
+`money` as strings, `uniqueidentifier` as its canonical text, binary as
+`0x…`, dates as RFC 3339 (`date` as `YYYY-MM-DD`).
+
+`tunr access` exposes the session on `127.0.0.1` as HTTP: `POST /query` with
+`{"sql": …}` and `Authorization: Bearer <client secret>`; MCP clients use
+`tunr_query`.
+
+## Grants act for a person
+
+A grant records the vendor-side person it acts for: the human who requested
+it, or the human who issued the agent token that did (`requested_by`; the
+portal shows `on_behalf_of`). The relay only opens streams for a grant while
+that person is still a member of the vendor org, and an agent whose token's
+issuer left the org can't request new grants (`403 issuer_left`). Hosted
+agents' bootstrap tokens have no issuer; their grants are unaffected.
+
+## Connect invites
+
+A vendor admin creates a one-time link: `POST /api/v1/bridge/orgs/{org}/invites`
+`{customer_hint?, note?, ttl?}` → `{invite, token, url}` (`url` is
+`<dashboard>/connect/<token>`, default lifetime 7 days, at most 30). Anyone
+with the link may read `GET /api/v1/bridge/invites/{token}` — the vendor's
+name, the note, expiry and status, nothing else. A signed-in customer accepts
+with `POST /api/v1/bridge/invites/{token}/accept` and either `{org}` (an
+existing customer org they administer) or `{org_name, org_slug}` (creates
+one), plus an optional `{site_name}`. Accepting links the vendor and creates
+the site (its token is returned once, as from `POST …/sites`); it approves no
+grant. A second use, a revoked or an expired link answers `410`.
 
 ## Grant JWT
 

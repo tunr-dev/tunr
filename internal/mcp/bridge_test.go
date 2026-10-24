@@ -5,14 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tunr-dev/tunr/internal/bridge/query"
 )
 
 type fakeBridge struct {
 	requested []string
 	closed    []string
+	queries   []string
 }
 
 func (f *fakeBridge) ListResources(context.Context) ([]BridgeResource, error) {
@@ -33,6 +37,16 @@ func (f *fakeBridge) OpenAccess(_ context.Context, res string, port int) (Opened
 	return OpenedAccess{Resource: res, Kind: "tcp", LocalAddress: "127.0.0.1:15432"}, nil
 }
 func (f *fakeBridge) CloseAccess(res string) error { f.closed = append(f.closed, res); return nil }
+func (f *fakeBridge) DescribeResource(_ context.Context, res string) (any, error) {
+	return map[string]any{"resource": res, "profile": map[string]any{"profile": "nebim-v3", "verified": false}}, nil
+}
+func (f *fakeBridge) Query(_ context.Context, res, sql string, maxRows int) (*query.Response, error) {
+	f.queries = append(f.queries, fmt.Sprintf("%s|%s|%d", res, sql, maxRows))
+	if strings.HasPrefix(sql, "DELETE") {
+		return &query.Response{Error: &query.Error{Code: "blocked", Message: "DELETE is not allowed"}}, nil
+	}
+	return &query.Response{RowCount: 1, ResultSets: []query.ResultSet{{Columns: []query.Column{{Name: "n", Type: "INT"}}, Rows: [][]any{{1}}}}}, nil
+}
 
 // rpc runs one session of requests through the server and returns responses by id.
 func rpc(t *testing.T, s func(in *strings.Reader, out *strings.Builder) *Server, reqs ...string) map[float64]map[string]any {
@@ -87,6 +101,10 @@ func TestBridgeToolsListedAndWorking(t *testing.T) {
 		call(7, "tunr_open_access", map[string]any{"resource": "acme/erp-db", "local_port": 80}),
 		call(8, "tunr_open_access", map[string]any{"resource": "acme/erp-db"}),
 		call(9, "tunr_close_access", map[string]any{"resource": "acme/erp-db"}),
+		call(10, "tunr_describe_resource", map[string]any{"resource": "acme/nebim"}),
+		call(11, "tunr_query", map[string]any{"resource": "acme/nebim", "sql": "SELECT 1 AS n"}),
+		call(12, "tunr_query", map[string]any{"resource": "acme/nebim", "sql": "DELETE FROM cdItem", "max_rows": 5}),
+		call(13, "tunr_query", map[string]any{"resource": "acme/nebim"}),
 	)
 
 	tools := res[1]["result"].(map[string]any)["tools"].([]any)
@@ -95,13 +113,13 @@ func TestBridgeToolsListedAndWorking(t *testing.T) {
 		names[tl.(map[string]any)["name"].(string)] = true
 	}
 	for _, want := range []string{"tunr_deploy", "tunr_share", "tunr_list_resources", "tunr_request_access",
-		"tunr_access_status", "tunr_open_access", "tunr_close_access"} {
+		"tunr_access_status", "tunr_open_access", "tunr_close_access", "tunr_describe_resource", "tunr_query"} {
 		if !names[want] {
 			t.Errorf("tool %s missing", want)
 		}
 	}
-	if len(tools) != 14 {
-		t.Errorf("tool count = %d, want 14 (9 existing + 5 bridge)", len(tools))
+	if len(tools) != 16 {
+		t.Errorf("tool count = %d, want 16 (9 existing + 7 bridge)", len(tools))
 	}
 
 	cases := []struct {
@@ -117,6 +135,10 @@ func TestBridgeToolsListedAndWorking(t *testing.T) {
 		{7, true, "invalid local_port"},
 		{8, false, "127.0.0.1:15432"},
 		{9, false, "closed acme/erp-db"},
+		{10, false, `"nebim-v3"`},
+		{11, false, `"row_count": 1`},
+		{12, true, "blocked: DELETE is not allowed"},
+		{13, true, "resource and sql are required"},
 	}
 	for _, c := range cases {
 		txt, isErr := text(res[c.id])
@@ -129,6 +151,9 @@ func TestBridgeToolsListedAndWorking(t *testing.T) {
 	}
 	if len(fb.closed) != 1 {
 		t.Errorf("closed = %v", fb.closed)
+	}
+	if strings.Join(fb.queries, ",") != "acme/nebim|SELECT 1 AS n|200,acme/nebim|DELETE FROM cdItem|5" {
+		t.Errorf("queries = %v (default max_rows 200)", fb.queries)
 	}
 }
 
