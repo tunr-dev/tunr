@@ -2,7 +2,7 @@
 # the way a customer would, from the GitHub release (checksum-verified).
 # Build context: this directory.
 FROM alpine:3.20
-ARG TUNR_VERSION=0.8.1
+ARG TUNR_VERSION=0.9.0
 ARG TARGETARCH
 RUN apk add --no-cache bash curl postgresql16-client ca-certificates tzdata \
  && cd /tmp \

@@ -3,7 +3,7 @@
 All notable changes to tunr are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v0.9.0 — 2026-10-24
 
 ### Added
 - **bridge:** SQL Server resources (`--kind mssql`) — Nebim, Logo, Netsis and
