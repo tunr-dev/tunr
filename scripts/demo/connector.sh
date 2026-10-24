@@ -20,4 +20,11 @@ if [ ! -f /etc/tunr/.ready ]; then
   touch /etc/tunr/.ready
 fi
 
+# v0.9: mask the tax number in results, and check the login is read-only.
+# Both run on every start, so an existing site picks them up on upgrade
+# (resource add keeps the stored credential).
+tunr connect resource add erp-db --config "$cfg" --kind postgres --target acme-db:5432 --database logo \
+  --mask cari.vergi_no=partial:4
+tunr connect resource verify erp-db --config "$cfg" || true
+
 exec tunr connect --config "$cfg" --health-addr 0.0.0.0:9095
