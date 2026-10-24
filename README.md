@@ -25,22 +25,26 @@ Read-only, time-boxed, approved by the customer, and on the record — through o
 </div>
 
 ```bash
+# The vendor sends one link:
+$ tunr invite create --org finbot --customer "Acme"
+https://app.tunr.sh/connect/tunr_inv_…               # Acme's IT signs in, names a site, gets the install command
+
 # Customer IT, once — inside their network, outbound HTTPS only:
-$ tunr connect --relay https://bridge.tunr.sh --site istanbul-office --relay-key ed25519:… --token-stdin --setup-only   # paste the site token
-$ tunr connect resource add erp-db --kind postgres --target 10.0.0.5:5432 --database logo
-$ tunr connect pg-role --database logo --tables invoices,stock --resource erp-db > pg-role.sql   # for the DBA
+$ tunr connect resource add erp --kind mssql --target 10.0.0.7:1433 --database TIGER --profile logo-tiger
+$ tunr connect mssql-role --database TIGER --resource erp > mssql-role.sql   # SELECT-only login, for the DBA
+$ tunr connect resource verify erp                   # login can't write? which Logo tables exist?
 
 # The vendor's agent — anywhere:
-$ tunr access request acme/erp-db --ttl 2h --reason "Reconcile October invoices"
-  pending  grt_…  acme/erp-db (ro, 2h0m0s)            # the customer approves in the portal
-$ tunr access acme/erp-db --port 15432
-postgresql://agent:…@127.0.0.1:15432/db?sslmode=disable
-$ psql "$DSN" -c "update invoices set amount = 0"
-ERROR:  tunr bridge: UPDATE is not allowed on a read-only bridge
+$ tunr access request acme/erp --ttl 2h --reason "Reconcile October invoices"
+  pending  grt_…  acme/erp (ro, 2h0m0s)               # a person at Acme approves
+$ tunr access acme/erp --port 15433
+TUNR_QUERY_URL=http://127.0.0.1:15433/query           # the connector runs each statement read-only
+$ curl -s $TUNR_QUERY_URL -H "Authorization: Bearer $TUNR_QUERY_TOKEN" -d '{"sql":"DELETE FROM LG_001_CLCARD"}'
+{"error":{"code":"blocked","message":"tunr bridge: DELETE is not allowed on a read-only bridge. …"}}
 ```
 
-Or let the agent do it: `tunr_list_resources`, `tunr_request_access`,
-`tunr_open_access` are MCP tools.
+Or let the agent do it over MCP: `tunr_describe_resource` (what the ERP's
+tables mean), `tunr_request_access`, `tunr_query` (rows as JSON).
 
 ---
 
@@ -105,8 +109,13 @@ npm install @tunr/cli     # Node.js
 |---|---|
 | **Connector** | `tunr connect` runs inside the customer's network as a service, dials out only, and serves named resources. Their addresses never leave the machine. |
 | **Grants** | Agent × resource × mode × duration, requested with a reason, approved by the customer (read-write needs two different approvers). They expire on their own. |
-| **Read-only databases** | A `SELECT`-only role, read-only sessions and a statement classifier; writes fail with SQLSTATE 42501. Row, byte and rate limits per grant. |
-| **No credentials for agents** | The connector logs in itself; the agent's DSN only unlocks its own local port. |
+| **Read-only databases** | PostgreSQL and SQL Server. A `SELECT`-only login (`pg-role` / `mssql-role`), read-only sessions or always-rolled-back transactions, and a statement classifier; writes are refused. `resource verify` tells the customer if the login could write. Row, byte and rate limits per grant. |
+| **SQL Server ERPs** | `mssql` resources run in query mode: the connector executes each statement and returns rows as JSON (`tunr_query`, or `POST /query` on `tunr access`'s port). Built for Nebim, Logo and Netsis, which mostly run on SQL Server. |
+| **Schema profiles** | Nebim V3, Logo Tiger/Go and Netsis: tables, column meanings, traps and example queries for the agent (`tunr_describe_resource`, `tunr profile show`), checked against the customer's real database by `resource verify`. |
+| **Masking** | Hide columns in results — SQL Server's Dynamic Data Masking via `mssql-role --mask`, or the connector's masking for Postgres (`--mask cari.vergi_no=partial:4`), which follows aliases and refuses expressions over masked columns. |
+| **No credentials for agents** | The connector logs in itself; the agent's DSN or query token only unlocks its own local port. |
+| **Acting for a person** | Every grant shows the person at the vendor it acts for; when they leave the vendor's org, their grants stop working. |
+| **Connect links** | `tunr invite create` — one link takes the customer's IT from sign-in to the install command. It approves nothing. |
 | **End-to-end TLS** | Between `tunr access` and the connector, pinned to the connector's certificate. |
 | **Audit** | Every grant decision, session and query summary, exportable as CSV. |
 | **Cut access** | Revoke closes live connections in milliseconds; the site kill switch revokes everything. |
@@ -115,10 +124,11 @@ npm install @tunr/cli     # Node.js
 
 What it guarantees, how, and what it doesn't: **[docs/bridge/security.md](docs/bridge/security.md)**.
 Getting started: [customer](docs/bridge/quickstart-customer.md) · [vendor](docs/bridge/quickstart-vendor.md) · protocol: [docs/protocol/bridge.md](docs/protocol/bridge.md).
+For the customer's IT team: [English](docs/bridge/for-your-it-team.md) · [Türkçe](docs/bridge/bt-ekibiniz-icin.md). For your coding agent: [agent-prompt.md](docs/bridge/agent-prompt.md).
 
 > **Status: preview.** Live on tunr.sh and end-to-end tested (two docker
-> suites in CI); expect sharp edges. Postgres and raw TCP resources today;
-> MySQL/MSSQL later.
+> suites in CI); expect sharp edges. PostgreSQL, SQL Server (query mode) and
+> raw TCP resources today; MySQL later.
 
 ---
 
@@ -559,6 +569,7 @@ means there is no code yet.
 | | Status |
 |---|---|
 | **Agent Bridge**: connector, grants, read-only Postgres proxy, end-to-end TLS, MCP tools — live on tunr.sh since v0.8.0 | 🚧 Preview |
+| **Agent Bridge**: SQL Server query mode, Nebim/Logo/Netsis profiles, masking, acting-for grants, connect links | 🚧 Unreleased |
 | Bridge dashboard ([app.tunr.sh](https://app.tunr.sh)): approvals, sites, agents & tokens, grants with per-query summaries, audit + CSV/JSON export, webhooks, org settings | 🚧 Preview |
 | Bridge orgs: members with owner / admin / approver / member roles, vendor↔customer links, two-approver rule for read-write | 🚧 Preview |
 | Self-hosted bridge (`docker compose`, built-in `/portal/`, on-demand TLS) | 🚧 Preview |
