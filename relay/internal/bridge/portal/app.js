@@ -154,10 +154,18 @@ async function route() {
   clearInterval(pollTimer);
   const { path, params } = parseHash();
   if (path === 'verify') return verify(params);
+  if (path.startsWith('connect/')) sessionStorage.setItem('tunr_invite', path.slice(8));
   if (!state.token) return viewLogin();
   if (!state.orgs.length) {
     const ok = await act(loadOrgs);
     if (ok === null) return;
+  }
+  const pendingInvite = sessionStorage.getItem('tunr_invite');
+  if (pendingInvite) {
+    const main = h('main', { class: 'main' });
+    render(shell('connect', main));
+    main.replaceChildren(h('div', { class: 'head' }, h('h1', {}, 'Connect to a vendor')), await viewConnect(pendingInvite));
+    return;
   }
   let r = routes[path];
   if (!r || (r.side === 'customer' && !isCustomer()) || (r.side === 'vendor' && !isVendor())) {
@@ -327,6 +335,8 @@ async function viewApprovals() {
     h('div', { class: 'spread' },
       h('div', {},
         h('div', { style: 'font-weight:700;font-size:15px' }, g.agent_name, h('span', { class: 'muted', style: 'font-weight:500' }, ' from ', g.vendor_slug)),
+        g.on_behalf_of ? h('div', { class: 'small ' + (g.on_behalf_gone ? '' : 'muted'), style: g.on_behalf_gone ? 'color:var(--bad)' : '' },
+          'acting for ', h('b', {}, g.on_behalf_of), g.on_behalf_gone ? ' — no longer at ' + g.vendor_slug + '; this grant cannot be used' : '') : null,
         h('div', { class: 'row', style: 'margin-top:6px' }, 'wants ', modeBadge(g.mode), ' access to ', h('code', {}, g.address),
           h('span', { class: 'badge' }, g.resource_kind), ' for ', h('b', {}, dur(g.requested_ttl_secs * 1000)))),
       h('div', { class: 'small muted' }, 'asked ', ago(g.created_at))),
@@ -415,7 +425,8 @@ async function viewSites() {
           h('tr', {}, h('th', {}, 'Resource'), h('th', {}, 'Kind'), h('th', {}, 'Status'), h('th', {}, 'Limits'), h('th', {}, '')),
           res.map((r) => h('tr', {},
             h('td', {}, h('code', {}, state.org.slug + '/' + r.name), r.description ? h('div', { class: 'small muted' }, r.description) : null),
-            h('td', {}, r.kind), h('td', {}, h('span', { class: 'badge ' + (r.status === 'active' ? 'ok' : '') }, r.status)),
+            h('td', {}, r.kind, r.profile ? h('div', { class: 'small muted' }, profileLabel(r)) : null),
+            h('td', {}, h('span', { class: 'badge ' + (r.status === 'active' ? 'ok' : '') }, r.status)),
             h('td', { class: 'small muted' }, Object.entries(r.limits || {}).map(([k, v]) => k + '=' + v).join(', ') || '—'),
             h('td', { style: 'text-align:right' }, isAdmin() ? h('button', { onclick: () => edit(r) }, 'Edit') : null)))))
           : h('p', { class: 'muted small', style: 'margin-top:10px' }, 'No resources yet — add them on the connector machine with tunr connect resource add.'));
@@ -507,7 +518,7 @@ async function viewActivity() {
             h('td', {}, q.blocked ? h('span', { class: 'badge bad' }, 'blocked ' + q.command.replace(/^blocked:/, '')) : h('code', {}, q.command)),
             h('td', {}, (q.tables || []).join(', ') || '—'), h('td', {}, q.row_count ?? '—'), h('td', {}, q.duration_ms ?? '—')),
           q.query_text ? h('tr', {}, h('td', { colspan: 5 }, h('code', { class: 'small' }, q.query_text))) : null])))
-          : h('p', { class: 'small muted', style: 'margin-top:8px' }, g.resource_kind === 'postgres'
+          : h('p', { class: 'small muted', style: 'margin-top:8px' }, (g.resource_kind === 'postgres' || g.resource_kind === 'mssql')
             ? 'No queries in this session.' : 'Raw TCP resources record sessions and bytes, not individual queries.'));
     }));
     detail.replaceChildren(h('h2', {}, g.agent_name + ' → ' + g.address), ...(blocks.length ? blocks : [h('div', { class: 'empty' }, 'No sessions yet.')]));
@@ -583,12 +594,77 @@ async function viewAgents() {
       : h('div', { class: 'empty' }, 'No agents yet.'));
 }
 
+function profileLabel(r) {
+  if (!r.profile) return '';
+  return r.profile + (r.profile_verified_at ? ' · ' + (r.profile_tables || []).length + ' tables verified' : ' · unverified');
+}
+
 async function viewCatalog() {
   const { resources = [] } = await api('GET', orgPath('/catalog'));
-  return resources.length ? h('div', { class: 'tablewrap' }, h('table', {},
-    h('tr', {}, h('th', {}, 'Resource'), h('th', {}, 'Kind'), h('th', {}, 'Description')),
-    resources.map((r) => h('tr', {}, h('td', {}, h('code', {}, r.address)), h('td', {}, r.kind), h('td', { class: 'muted' }, r.description || '—')))))
-    : h('div', { class: 'empty' }, 'No customer has linked your organization yet. Give them your slug: ', h('code', {}, state.org.slug));
+  const hint = h('input', { placeholder: 'Customer name (optional)' });
+  const out = h('div');
+  const invite = () => act(async () => {
+    const r = await api('POST', orgPath('/invites'), { customer_hint: hint.value.trim() });
+    out.replaceChildren(h('p', { class: 'small muted' }, 'One use, valid until ' + new Date(r.invite.expires_at).toLocaleString() +
+      '. Accepting it links your org and creates their first site; they still approve every grant.'), copyBlock(r.url));
+  });
+  const inviteCard = isAdmin() ? h('div', { class: 'card' }, h('b', {}, 'Invite a customer'),
+    h('p', { class: 'small muted' }, 'Send one link: their IT signs in, names their site and gets the connector install command.'),
+    h('div', { class: 'form' }, hint, h('button', { class: 'primary', onclick: invite }, 'Create link')), out) : null;
+  return h('div', {}, inviteCard, resources.length ? h('div', { class: 'tablewrap' }, h('table', {},
+    h('tr', {}, h('th', {}, 'Resource'), h('th', {}, 'Kind'), h('th', {}, 'Schema profile'), h('th', {}, 'Description')),
+    resources.map((r) => h('tr', {}, h('td', {}, h('code', {}, r.address)), h('td', {}, r.kind),
+      h('td', { class: 'small' }, profileLabel(r) || '—'), h('td', { class: 'muted' }, r.description || '—')))))
+    : h('div', { class: 'empty' }, 'No customer has linked your organization yet. Send an invite above, or give them your slug: ', h('code', {}, state.org.slug)));
+}
+
+// ── customer: accept a vendor's connect link (#/connect/<token>) ────────────
+
+async function viewConnect(token) {
+  let inv;
+  try {
+    const res = await fetch('/api/v1/bridge/invites/' + encodeURIComponent(token));
+    inv = await res.json();
+    if (!res.ok) throw new Error(inv.message || 'invite not found');
+  } catch (e) { sessionStorage.removeItem('tunr_invite'); return h('div', { class: 'empty' }, e.message); }
+  if (inv.status !== 'pending') {
+    sessionStorage.removeItem('tunr_invite');
+    return h('div', { class: 'empty' }, 'This link is ' + inv.status + '. Ask ' + inv.vendor_name + ' for a new one.');
+  }
+  const mine = state.orgs.filter((o) => (o.kind === 'customer' || o.kind === 'both') && (o.role === 'owner' || o.role === 'admin'));
+  const pick = h('select', {}, ...mine.map((o) => h('option', { value: o.slug }, o.name + ' (' + o.slug + ')')), h('option', { value: '' }, '+ New organization'));
+  const orgName = h('input', { placeholder: inv.customer_hint || 'Company name' });
+  const orgSlug = h('input', { placeholder: 'company-slug', pattern: '[a-z0-9-]{3,32}' });
+  const site = h('input', { placeholder: 'main-office', pattern: '[a-z0-9-]{3,32}' });
+  const out = h('div');
+  const accept = () => act(async () => {
+    const body = { site_name: site.value.trim() };
+    if (pick.value) body.org = pick.value; else Object.assign(body, { org_name: orgName.value.trim(), org_slug: orgSlug.value.trim() });
+    const r = await api('POST', '/invites/' + encodeURIComponent(token) + '/accept', body);
+    sessionStorage.removeItem('tunr_invite');
+    await loadOrgs();
+    const base = r.site ? r.site.connect_command.replace(/^tunr connect /, '') : '';
+    out.replaceChildren(h('div', { class: 'callout' }, inv.vendor_name + ' is linked. They can see resource names and ask; nothing is approved.'),
+      r.site ? h('ol', { class: 'steps' },
+        h('li', {}, h('b', {}, 'Install tunr inside your network'), ' (outbound HTTPS only):', copyBlock('curl -fsSL https://tunr.sh/install.sh | sh')),
+        h('li', {}, h('b', {}, 'Connect this site'), ' — paste the token when asked (shown once):',
+          copyBlock('sudo tunr connect ' + base + ' --secret-store file --setup-only'), copyBlock(r.site.token, true)),
+        h('li', {}, h('b', {}, 'Add your database'), ' — SQL Server (Nebim, Logo, Netsis) or PostgreSQL:',
+          copyBlock('sudo tunr connect resource add erp --kind mssql --target 10.0.0.7:1433 --database ERP --profile nebim-v3'),
+          copyBlock('sudo tunr connect mssql-role --database ERP --resource erp > mssql-role.sql'),
+          copyBlock('sudo tunr connect resource verify erp')),
+        h('li', {}, h('b', {}, 'Start it'), copyBlock('sudo tunr connect install'))) : null);
+  });
+  const newOrg = h('div', {}, h('label', {}, 'Organization name'), orgName, h('label', {}, 'Slug'), orgSlug);
+  const sync = () => { newOrg.style.display = pick.value ? 'none' : ''; };
+  pick.onchange = sync; sync();
+  return h('div', {}, h('div', { class: 'card' },
+    h('div', { style: 'font-weight:700;font-size:15px' }, inv.vendor_name, h('span', { class: 'muted', style: 'font-weight:500' }, ' asks you to connect your systems')),
+    inv.note ? h('div', { class: 'reason' }, inv.note) : null,
+    h('p', { class: 'small muted' }, 'Accepting links ' + inv.vendor_slug + ' to your organization and creates a site. Their agents can then ask for access — each request needs your approval.'),
+    h('label', {}, 'Your organization'), pick, newOrg, h('label', {}, 'First site name'), site,
+    h('div', { class: 'row', style: 'margin-top:14px' }, h('button', { class: 'primary', onclick: accept }, 'Accept and continue'),
+      h('button', { onclick: () => { sessionStorage.removeItem('tunr_invite'); location.hash = '#/'; route(); } }, 'Not now'))), out);
 }
 
 async function viewMyGrants() {

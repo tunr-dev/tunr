@@ -45,14 +45,18 @@ func hashInvite(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// connectURL is where the customer opens the invite: the dashboard origin
-// of PortalURL, /connect/<token>.
+// connectURL is where the customer opens the invite: the relay's own portal
+// (#/connect/<token>) when PortalURL points at it, else the dashboard's
+// /connect/<token> on PortalURL's origin.
 func (s *Server) connectURL(token string) string {
-	base := "https://app.tunr.sh"
-	if u, err := url.Parse(s.cfg.PortalURL); err == nil && u.Scheme != "" && u.Host != "" {
-		base = u.Scheme + "://" + u.Host
+	u, err := url.Parse(s.cfg.PortalURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "https://app.tunr.sh/connect/" + token
 	}
-	return base + "/connect/" + token
+	if strings.TrimRight(u.Path, "/") == "/portal" {
+		return u.Scheme + "://" + u.Host + "/portal/#/connect/" + token
+	}
+	return u.Scheme + "://" + u.Host + "/connect/" + token
 }
 
 func (s *Server) createInvite(w http.ResponseWriter, r *http.Request) {
