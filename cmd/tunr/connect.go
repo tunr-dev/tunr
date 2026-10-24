@@ -150,7 +150,7 @@ func connectSetup(path, site, token, relayKey, secretStore string) error {
 	}
 	term.Green.Println(fmt.Sprintf("  ✓ Site %s configured (%s)", cfg.Site, path))
 	if len(cfg.Resources) == 0 {
-		term.Dim.Println("  Next: tunr connect resource add <name> --kind postgres|tcp --target host:port")
+		term.Dim.Println("  Next: tunr connect resource add <name> --kind mssql|postgres|tcp --target host:port")
 	}
 	return nil
 }

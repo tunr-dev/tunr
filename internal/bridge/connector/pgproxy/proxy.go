@@ -512,15 +512,19 @@ func (s *session) fromServer() error {
 				rules, computed := s.mask.plan(m.Fields)
 				s.mu.Lock()
 				refuse := computed && s.cur.masked
-				text := strings.Join(nonEmpty(s.cur.text), ";\n")
+				refused := s.cur
 				if refuse {
+					// The refusal is this cycle's audit record; drop the cycle
+					// so ReadyForQuery doesn't log it again as a 0-row SELECT.
 					s.swallow = true
+					s.cur = cycle{}
 				} else {
 					s.plan = rules
 				}
 				s.mu.Unlock()
 				if refuse {
-					s.cfg.Audit(Audit{Command: "MASKED_EXPRESSION", Blocked: true, QueryText: truncate(text)})
+					s.cfg.Audit(Audit{Command: "MASKED_EXPRESSION", Tables: dedupe(refused.tables), Blocked: true,
+						QueryText: truncate(strings.Join(nonEmpty(refused.text), ";\n"))})
 					if err := s.toClient(true, s.blockErr("a masked column can be selected only as a plain column, "+
 						"not inside an expression, aggregate or UNION")); err != nil {
 						return err

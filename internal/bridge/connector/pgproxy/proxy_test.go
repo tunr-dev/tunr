@@ -398,6 +398,24 @@ func TestProxyMasking(t *testing.T) {
 			t.Errorf("%s: want 42501, got %v", q, err)
 		}
 	}
+	// A refusal is audited once, as blocked, with its table.
+	e.mu.Lock()
+	var masked, zeroSelects int
+	for _, a := range e.audits {
+		if a.Command == "MASKED_EXPRESSION" {
+			masked++
+			if !a.Blocked || len(a.Tables) == 0 || a.Tables[0] != "cari" {
+				t.Errorf("masked refusal audit = %+v", a)
+			}
+		}
+		if a.Command == "SELECT" && strings.Contains(a.QueryText, "left(vergi_no") {
+			zeroSelects++
+		}
+	}
+	e.mu.Unlock()
+	if masked != 4 || zeroSelects != 0 {
+		t.Errorf("audits: %d masked refusals (want 4), %d duplicate SELECT records (want 0)", masked, zeroSelects)
+	}
 	// Unrelated expressions still work, and the session survives refusals.
 	if rows, err := run("SELECT count(*), max(id) FROM cari"); err != nil || rows[0][0] != "2" {
 		t.Errorf("aggregate without masked columns: %v %v", rows, err)
