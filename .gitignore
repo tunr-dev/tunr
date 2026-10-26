@@ -99,3 +99,6 @@ ref/
 
 # Stray relay binary built with `go build -o relay-server`
 relay/relay-server
+
+# Python SDK build output (CI builds it fresh)
+sdk/python/dist/
