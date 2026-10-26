@@ -5,7 +5,7 @@ Official Python SDK for tunr tunnels.
 ## Installation
 
 ```bash
-pip install tunr
+pip install tunr-sdk
 ```
 
 ## Usage

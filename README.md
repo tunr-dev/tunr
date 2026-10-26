@@ -108,7 +108,7 @@ dependencies. Verify it with `tunr doctor`.
 **SDKs** — for driving tunnels from code rather than the shell:
 
 ```bash
-pip install tunr          # Python
+pip install tunr-sdk      # Python
 npm install @tunr/cli     # Node.js
 ```
 
@@ -439,7 +439,7 @@ descriptions say so: *deploy* means "host this, it should outlive my laptop",
 ## SDKs
 
 <details>
-<summary><b>Python</b> — <code>pip install tunr</code></summary>
+<summary><b>Python</b> — <code>pip install tunr-sdk</code></summary>
 
 <br/>
 
