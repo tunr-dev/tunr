@@ -10,7 +10,7 @@ require (
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/microsoft/go-mssqldb v1.11.2
 	golang.org/x/term v0.45.0
