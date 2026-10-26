@@ -121,7 +121,7 @@ Taking client presentations to the next level. Tunr proxy dynamically enhances y
 
 # SDK Documentation
 
-## Python SDK (`pip install tunr`)
+## Python SDK (`pip install tunr-sdk`)
 
 ### Tunnel Creation
 ```python
