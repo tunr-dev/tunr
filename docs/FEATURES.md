@@ -4,7 +4,7 @@ Tunr's main product is the **Agent Bridge**: it connects AI agents to data insid
 
 # Agent Bridge (preview)
 
-Status: preview. Postgres and raw TCP resources today. Command reference: [CLI.md](CLI.md#agent-bridge-preview). Guarantees and limits: [bridge/security.md](bridge/security.md).
+Status: preview. PostgreSQL, SQL Server (query mode) and raw TCP resources today. Command reference: [CLI.md](CLI.md#agent-bridge-preview). Guarantees and limits: [bridge/security.md](bridge/security.md).
 
 ## 🔌 Connector (customer side)
 - **Outbound only:** `tunr connect` runs inside the customer's network and dials the relay over HTTPS/WebSocket. No inbound port is opened.
