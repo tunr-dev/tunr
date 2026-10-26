@@ -158,6 +158,15 @@ jobs:
           rm -rf dist
           python -m build
 
+      # A wheel without the tunr/ package still builds and uploads fine —
+      # 0.9.0 shipped that way. Install it in a clean venv and import it.
+      - name: Smoke-test the wheel
+        working-directory: sdk/python
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install dist/*.whl
+          cd /tmp && /tmp/smoke/bin/python -c "from tunr import TunrClient"
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

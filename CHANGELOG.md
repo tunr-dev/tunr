@@ -9,7 +9,8 @@ All notable changes to tunr are documented here. This project adheres to
 - **sdk/python:** the Python SDK is now published to PyPI as **`tunr-sdk`**
   (`pip install tunr-sdk`; still `import tunr`). The old `tunr` project on PyPI
   is stuck at 0.4.0 and will not get new releases. PyPI publishing uses Trusted
-  Publishing — no API token.
+  Publishing — no API token. First release is `0.9.0.post1`; the `0.9.0` wheel
+  on PyPI is empty (packaging bug) and is yanked.
 
 ## v0.9.0 — 2026-10-24
 

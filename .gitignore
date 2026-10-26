@@ -102,3 +102,4 @@ relay/relay-server
 
 # Python SDK build output (CI builds it fresh)
 sdk/python/dist/
+__pycache__/
