@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           # Explicit, not go-version-file: go.mod's "go" line is the minimum,
           # and the binaries ship whatever stdlib this toolchain has.
